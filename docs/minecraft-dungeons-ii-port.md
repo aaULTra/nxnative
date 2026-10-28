@@ -10,15 +10,15 @@
 
 ## Preparing your own base game plus update
 
-On your own trusted machine, keep both original-Switch game files together:
+On your own trusted machine, keep both original-Switch game files together. The user supplied two **NSP** files with matching base and update IDs:
 
 ```text
 Games/MinecraftDungeonsII/
-  Minecraft Dungeons II [BASE_TITLE_ID][v0].nsp
-  Minecraft Dungeons II [UPDATE_TITLE_ID][vNUMBER].nsp
+  Minecraft Dungeons 2 [0100A7C01B792000][v0].nsp       # base; approximately 1.66 GB
+  Minecraft Dungeons 2 [0100A7C01B792800][v65536].nsp   # update; approximately 2.94 GB
 ```
 
-The example fields above are placeholders, **not the actual title ID or version**. Keep the real original package names where possible. An XCI may be used for the base. nxnative reads ticket title IDs when possible and expects updates to have the matching update title ID (typically base ID + 0x800). Place your own `prod.keys` outside that folder. Do not commit or publish game files, keys, decrypted content or completed IPAs in the public GitHub fork.
+The update's title ID is the base title ID + 0x800. This is consistent with a matching original-Switch update, but does not cryptographically verify authenticity or whether the packages are valid Switch 1 files. Filenames are illustrative of the provided metadata; keep the actual filenames if they already contain these tags. Place your own `prod.keys` outside that folder. Do not commit or publish game files, keys, decrypted content or completed IPAs in the public GitHub fork.
 
 On any machine with Python 3.12+ and this repository checked out:
 
