@@ -584,12 +584,28 @@ def same_build(nsp_dir, app, fam, keys, repo, env):
     PROG.plan(1); PROG.stage('build ID lookup', step='build nx_extract')
     nx = build_nx_extract(repo, work, logs, env)
     ups = sorted(fam['updates'], key=lambda u: u[0] or 0)
+    updated_lookup_succeeded = False
     for v, upd in ([ups[-1]] if ups else []) + [(0, None)]:
         PROG.set(step=f'main of {"the base game" if upd is None else "update v" + str(v)}')
         tmp = work / 'exefs.partial'; rmtree(tmp)
-        run([nx, keys, fam['base'], upd or '-', tmp, '--manifest'] + (['--allow-damaged'] if ALLOW_DAMAGED else []), logs / 'exefs.log')
+        # Keep separate logs. The base-only pass previously overwrote the successful
+        # updated pass's log, making an unrelated failure appear to be in the update.
+        log = logs / f'exefs_{"base" if upd is None else "update_v" + str(v)}.log'
+        try:
+            run([nx, keys, fam['base'], upd or '-', tmp, '--manifest'] + (['--allow-damaged'] if ALLOW_DAMAGED else []), log)
+        except BuildError:
+            if upd is None and updated_lookup_succeeded:
+                # The base-only lookup is an optional chance to find a known
+                # profile under another title ID. Its failure must not prevent
+                # a survey of an update whose merged ExeFS we already extracted.
+                # Do not waive checks: the later update survey verifies its data.
+                say('[RED] base-only build-ID lookup failed; proceeding to survey the updated game. Check base NSP integrity separately.')
+                rmtree(tmp)
+                continue
+            raise
         main = tmp / 'ExeFS/main'
         bid = build_id(main) if main.exists() else None
+        if upd is not None and bid: updated_lookup_succeeded = True
         g = gamemod.by_build(bid) if bid else None
         rmtree(tmp)
         if g:
