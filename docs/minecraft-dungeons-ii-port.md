@@ -28,7 +28,23 @@ python3 scripts/mcd2_preflight.py /path/to/Games/MinecraftDungeonsII
 
 The check prints title IDs and the candidate update version, then the corresponding Mac commands. It cannot establish that the packages are genuinely Minecraft Dungeons II or distinguish platform editions from their filenames alone.
 
-## Game-specific survey (requires a compatible Mac)
+## First game survey without a Mac
+
+The repository includes `.github/workflows/mcd2-remote-survey.yml`, which first checks the Linux survey toolchain without any game files. This preflight runs automatically in the PR.
+
+A second job is **opt-in only** and requires user-controlled, expiring HTTPS downloads and GitHub repository Actions secrets:
+
+- `MCD2_BASE_URL`: HTTPS download URL for the base NSP
+- `MCD2_UPDATE_URL`: HTTPS download URL for the update NSP
+- `MCD2_PROD_KEYS`: the contents of your own `prod.keys` file
+
+Set these only using GitHub's **Settings → Secrets and variables → Actions**. **Never send the keys or URLs in chat, issues, pull requests, source files, or workflow inputs.** Remember: a public repository's workflow metadata, text logs and artifacts can be visible to others. The optional job uploads only the survey Markdown report (retained for one day), not game binaries or keys. Anyone with write access to the repository may be able to alter code that runs with secrets; review permissions and consider a separate private working repository before adding them. These are credentials sent to GitHub's runner, and cannot be described as local-only.
+
+After the workflow has been merged into `main` and the prerequisite job passes, visit **Actions → MCD2 remote survey → Run workflow**, select `main`, and set **run_survey** to true. The required files are downloaded to an ephemeral Linux machine, the base+update pairing is checked, and nxnative writes a text report for this new game. A survey succeeds only if the package structures, keys, extraction and analysis all work. Linux compatibility of the extraction has not yet been established until the workflow runs successfully.
+
+This Linux route analyses data only. **A full IPA still needs a compatible Mac/Xcode/Metal toolchain**, and actually running a game still needs a supported iPhone or iPad.
+
+## Game-specific survey on a compatible Mac
 
 Follow upstream [README](../README.md) to install Xcode, .NET SDK and the required build tools. Run the survey command printed by the preflight script, which is equivalent to:
 
