@@ -8,8 +8,8 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from mcd2_preflight import PairingError, inspect_folder
 
-BASE = '0100ABCDEF120000'
-UPDATE = '0100ABCDEF120800'
+BASE = '0100A7C01B792000'
+UPDATE = '0100A7C01B792800'
 
 
 def synthetic_nsp(folder, name):
@@ -33,6 +33,14 @@ class TestMcd2Preflight(unittest.TestCase):
             self.assertEqual(version, 'v131072')
             self.assertIn('[v131072]', update.name)
             self.assertEqual(len(family['updates']), 2)
+
+    def test_unexpected_game_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            synthetic_nsp(folder, 'Other [0100ABCDEF120000][v0].nsp')
+            synthetic_nsp(folder, 'Other [0100ABCDEF120800][v65536].nsp')
+            with self.assertRaisesRegex(PairingError, 'Unexpected base title ID'):
+                inspect_folder(folder)
 
     def test_base_without_update_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
