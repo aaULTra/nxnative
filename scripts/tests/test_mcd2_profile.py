@@ -78,6 +78,14 @@ class TestMcd2GameProfile(unittest.TestCase):
         launcher = (ROOT / "dm" / "ios" / "Sources" / "Launcher.swift").read_text()
         self.assertIn("os_proc_available_memory()", launcher)
 
+    def test_deep_diagnostic_skips_full_repeat_census(self):
+        workflow = (ROOT / ".github" / "workflows" / "mcd2-remote-survey.yml").read_text()
+        self.assertIn("dotnet run --project dm/tools/nx_extract", workflow)
+        self.assertIn("--manifest", workflow)
+        self.assertIn("mcd2_deep_diagnostics.py", workflow)
+        self.assertNotIn("--provisional --survey-only --progress off", workflow)
+        self.assertNotIn("mcd2-survey.md", workflow)
+
     def test_host_profile_header_renders(self):
         header = game.header(self.profile)
         self.assertIn("DM_GAME_PROGRAM_ID 0x0100A7C01B792000ull", header)
