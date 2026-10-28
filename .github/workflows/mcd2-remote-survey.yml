@@ -1,0 +1,113 @@
+# Original-Switch game analysis on GitHub's Linux runner.
+# Never commit licensed game NSPs, console keys, or decrypted files.
+name: MCD2 remote survey
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/mcd2-remote-survey.yml'
+      - 'scripts/mcd2_preflight.py'
+      - 'scripts/tests/test_mcd2_preflight.py'
+  workflow_dispatch:
+    inputs:
+      run_survey:
+        description: 'Analyse game files using your private, expiring HTTPS links and keys'
+        type: boolean
+        default: false
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  linux-toolchain:
+    name: Test Linux survey prerequisites (no game files)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install Python analysis packages
+        run: python -m pip install lz4 capstone fonttools
+      - name: Test nxnative's base and update pairing
+        run: python -m unittest discover -s scripts/tests -p test_mcd2_preflight.py -v
+      - name: Compile the original Switch NSP manifest extractor on Linux
+        run: dotnet build dm/tools/nx_extract -c Release -v quiet --nologo
+      - name: Confirm survey script starts on Linux
+        run: python scripts/build_ipa_from_nsp.py --help >/dev/null
+
+  private-game-survey:
+    # No secrets are exposed to pull requests. Explicit manual runs on main only.
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.run_survey }}
+    name: Generate base + v65536 survey
+    needs: linux-toolchain
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      BASE_URL: ${{ secrets.MCD2_BASE_URL }}
+      UPDATE_URL: ${{ secrets.MCD2_UPDATE_URL }}
+      KEYS_TEXT: ${{ secrets.MCD2_PROD_KEYS }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install Python packages
+        run: python -m pip install lz4 capstone fonttools
+      - name: Verify private GitHub Actions secrets exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$BASE_URL" || { echo "::error::Set MCD2_BASE_URL as a repository Actions secret"; exit 1; }
+          test -n "$UPDATE_URL" || { echo "::error::Set MCD2_UPDATE_URL as a repository Actions secret"; exit 1; }
+          test -n "$KEYS_TEXT" || { echo "::error::Set MCD2_PROD_KEYS as a repository Actions secret"; exit 1; }
+          umask 077
+          mkdir -p "$RUNNER_TEMP/mcd2/game"
+          printf '%s\n' "$KEYS_TEXT" > "$RUNNER_TEMP/mcd2/prod.keys"
+      - name: Download owned base and update NSPs to ephemeral runner storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          folder="$RUNNER_TEMP/mcd2/game"
+          curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location --retry 3 --silent --show-error \
+            --output "$folder/Minecraft Dungeons 2 [0100A7C01B792000][v0].nsp" "$BASE_URL"
+          curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location --retry 3 --silent --show-error \
+            --output "$folder/Minecraft Dungeons 2 [0100A7C01B792800][v65536].nsp" "$UPDATE_URL"
+          test -s "$folder/Minecraft Dungeons 2 [0100A7C01B792000][v0].nsp"
+          test -s "$folder/Minecraft Dungeons 2 [0100A7C01B792800][v65536].nsp"
+      - name: Validate header metadata and survey the merged game
+        shell: bash
+        run: |
+          set -euo pipefail
+          folder="$RUNNER_TEMP/mcd2/game"
+          python scripts/mcd2_preflight.py "$folder" --keys "$RUNNER_TEMP/mcd2/prod.keys"
+          python scripts/build_ipa_from_nsp.py "$folder" -k "$RUNNER_TEMP/mcd2/prod.keys" --survey-only --progress off
+          report="$folder/0100A7C01B792000_survey/survey.md"
+          test -s "$report"
+          cp "$report" "$GITHUB_WORKSPACE/mcd2-survey.md"
+          # Replace temporary runner paths, which vary between executions.
+          sed -i "s|$RUNNER_TEMP|[ephemeral-runner]|g" "$GITHUB_WORKSPACE/mcd2-survey.md"
+      - name: Upload survey text only (public repository artifact, no game files)
+        if: success()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mcd2-survey-report
+          path: mcd2-survey.md
+          if-no-files-found: error
+          retention-days: 1
+      - name: Delete the temporary game and keys
+        if: always()
+        shell: bash
+        run: rm -rf -- "$RUNNER_TEMP/mcd2"
