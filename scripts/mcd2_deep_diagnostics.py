@@ -60,6 +60,28 @@ def possible_62g_immediates(code):
     return result
 
 
+
+def near_direct_calls(code, site, radius=96, limit=8):
+    """ARM64 BL targets near a 62 GiB immediate, no game code emitted.
+
+    Offsets are relative to the loaded main NSO text segment. A nearby call
+    does NOT establish that it allocates memory; disassembly and validation
+    of the exact target function are still required before any patch.
+    """
+    calls = []
+    start = max(0, site - radius) & ~3
+    stop = min(len(code) - 3, site + radius)
+    for off in range(start, stop, 4):
+        word = struct.unpack_from("<I", code, off)[0]
+        if word & 0xFC000000 != 0x94000000:
+            continue
+        imm = word & 0x03FFFFFF
+        if imm & 0x02000000:
+            imm -= 0x04000000
+        calls.append((off, off + imm * 4))
+    return sorted(calls, key=lambda call: (abs(call[0] - site), call[0]))[:limit]
+
+
 def report(survey_dir):
     ext = Path(survey_dir) / "extract"
     rows = manifest_rows(ext / "romfs_manifest.tsv")
@@ -85,8 +107,16 @@ def report(survey_dir):
         "## Memory reservation candidate offsets", "",
     ]
     if possibles:
-        out.extend(f"- main+0x{p:x} (candidate, not verified for patching)"
-                   for p in possibles[:100])
+        for p in possibles[:100]:
+            # Only direct-call offsets/targets, not ARM64 disassembly or bytes.
+            # This helps narrow the candidate function before private analysis.
+            out.append(f"- main+0x{p:x} (candidate, not verified for patching)")
+            calls = near_direct_calls(code, p)
+            if calls:
+                out.append("  - Nearby BL calls (offset -> target; unverified): " +
+                           "; ".join(f"0x{at:x}->0x{target:x}" for at, target in calls))
+            else:
+                out.append("  - No BL within 96 bytes (not evidence of no memory calls)")
         if len(possibles) > 100:
             out.append("- More candidates omitted.")
     else:
