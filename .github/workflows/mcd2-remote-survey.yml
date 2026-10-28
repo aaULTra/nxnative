@@ -39,7 +39,7 @@ jobs:
       - name: Verify Google Drive downloader is installed
         run: gdown --help >/dev/null
       - name: Test nxnative's base and update pairing
-        run: python -m unittest discover -s scripts/tests -p test_mcd2_preflight.py -v
+        run: python -m unittest discover -s scripts/tests -p 'test_mcd2_*.py' -v
       - name: Compile the original Switch NSP manifest extractor on Linux
         run: dotnet build dm/tools/nx_extract -c Release -v quiet --nologo
       - name: Confirm survey script starts on Linux
@@ -87,7 +87,7 @@ jobs:
           # gdown resolves the actual file and the large-file confirmation page.
           # Never print the sharing URLs or log gdown's redirect URLs.
           download_nsp() {
-            local url="$1" output="$2" minimum_bytes="$3"
+            local url="$1" output="$2" expected_bytes="$3"
             case "$url" in
               https://drive.google.com/*)
                 gdown --quiet --continue --retries 3 "$url" -O "$output"
@@ -103,13 +103,13 @@ jobs:
             esac
             local actual_size
             actual_size=$(stat -c '%s' "$output")
-            if [ "$actual_size" -lt "$minimum_bytes" ]; then
-              echo "::error::Downloaded file is unexpectedly small; verify the sharing permissions and that this is the NSP rather than an HTML preview." >&2
+            if [ "$actual_size" -ne "$expected_bytes" ]; then
+              echo "::error::Downloaded file has a different size than the Drive metadata; recheck the NSP and link before extraction." >&2
               return 1
             fi
           }
-          download_nsp "$BASE_URL" "$folder/Minecraft Dungeons 2 [0100A7C01B792000][v0].nsp" 1000000000
-          download_nsp "$UPDATE_URL" "$folder/Minecraft Dungeons 2 [0100A7C01B792800][v65536].nsp" 2000000000
+          download_nsp "$BASE_URL" "$folder/Minecraft Dungeons 2 [0100A7C01B792000][v0].nsp" 1662600274
+          download_nsp "$UPDATE_URL" "$folder/Minecraft Dungeons 2 [0100A7C01B792800][v65536].nsp" 2943659595
       - name: Validate header metadata and survey the merged game
         shell: bash
         run: |
