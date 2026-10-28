@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""Text-only diagnostics from an ephemeral Minecraft Dungeons II survey.
+
+Does not upload decrypted modules, keys, shaders, or other game content.
+"""
+import argparse
+import re
+import struct
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "dm" / "tools"))
+import nso  # noqa: E402
+
+
+def manifest_rows(path):
+    """Read nx_extract's text-only RomFS manifest."""
+    rows = []
+    for line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line or line.startswith("#"):
+            continue
+        cols = line.split("\t")
+        if len(cols) != 3:
+            raise ValueError("invalid RomFS manifest row")
+        name, size_str, _ = cols
+        size = int(size_str)
+        if size < 0:
+            raise ValueError("negative RomFS file size")
+        rows.append((name, size))
+    return rows
+
+
+def io_container_pairs(rows):
+    """Find actual IoStore containers without guessing their filenames."""
+    by_name = {name.casefold(): (name, size) for name, size in rows}
+    result = []
+    for name, size in rows:
+        if name.lower().endswith(".ucas"):
+            match = by_name.get((name[:-5] + ".utoc").casefold())
+            result.append((name, size, match[0] if match else None))
+    return sorted(result, key=lambda x: -x[1])
+
+
+def unreal_versions(image):
+    return sorted({v.decode("ascii") for v in
+                   re.findall(rb"UnrealEngine-([45]_[0-9_]{2,12})", image)})
+
+
+def possible_62g_immediates(code):
+    """Possible ORR Xd, XZR, #0xf80000000 instructions.
+
+    Only recognises one encoding, seen in an earlier Unreal nxnative port.
+    No match does NOT mean this game does not reserve 62 GiB.
+    """
+    result = []
+    for offset in range(0, len(code) - 3, 4):
+        if struct.unpack_from("<I", code, offset)[0] & 0xFFFFFFE0 == 0xB26113E0:
+            result.append(offset)
+    return result
+
+
+def report(survey_dir):
+    ext = Path(survey_dir) / "extract"
+    rows = manifest_rows(ext / "romfs_manifest.tsv")
+    main_file = ext / "ExeFS" / "main"
+    if not main_file.is_file():
+        raise FileNotFoundError("missing survey ExeFS/main")
+    module = nso.load(main_file.read_bytes(), str(main_file))
+    image = bytes(module.image)
+    code = memoryview(image)[:module.segments[0][1]]
+    versions = unreal_versions(image)
+    possibles = possible_62g_immediates(code)
+    groups = io_container_pairs(rows)
+    assets = [(p, n) for p, n in rows if p.lower().endswith((".pak", ".utoc", ".ucas"))]
+    clean = lambda p: p.replace("\r", "").replace("\n", "_").replace("|", "_")
+    out = [
+        "# Minecraft Dungeons II: metadata-only diagnostics", "",
+        "This is not a boot test, executable patch, IPA or claim of playability.",
+        "No decrypted game data, keys, instruction bytes or shaders are included.", "",
+        f"- RomFS manifest entries: {len(rows)}",
+        f"- Unreal engine version markers: {', '.join(versions) if versions else 'none found'}",
+        f"- SwitchVirtualAddressSpaceSize string in main: {b'SwitchVirtualAddressSpaceSize' in image}",
+        f"- 62 GiB ORR-immediate candidates: {len(possibles)} (one encoding only)", "",
+        "## Memory reservation candidate offsets", "",
+    ]
+    if possibles:
+        out.extend(f"- main+0x{p:x} (candidate, not verified for patching)"
+                   for p in possibles[:100])
+        if len(possibles) > 100:
+            out.append("- More candidates omitted.")
+    else:
+        out.append("No match to this one instruction encoding. Other forms remain possible.")
+    out += ["", "## IoStore archive pairs", ""]
+    for path, size, toc in groups:
+        out.append(f"- {clean(path)} ({size:,} bytes); TOC: {clean(toc) if toc else 'MISSING'}")
+    if not groups:
+        out.append("No .ucas files found.")
+    out += ["", "## Unreal archive inventory", ""]
+    for path, size in sorted(assets, key=lambda x: -x[1]):
+        out.append(f"- {clean(path)} ({size:,} bytes)")
+    out += ["", "## Follow-up evidence needed", "",
+            "1. Use the observed largest .ucas as the game's exact RomFS marker.",
+            "2. Disassemble the main-build candidates and validate original instruction bytes.",
+            "3. Identify the FMallocBinned3 constructor and vtable layout; do not copy another game's offsets.",
+            "4. Verify this SDK 20.5.15 build's address region manager before sdk patching.",
+            "5. Compile and boot using a Mac and test on iPad before any playability claim."]
+    return "\n".join(out) + "\n"
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("survey_dir", type=Path)
+    ap.add_argument("--output", type=Path, required=True)
+    args = ap.parse_args()
+    text = report(args.survey_dir)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(text, encoding="utf-8")
+    print(f"Wrote text-only diagnostics ({len(text)} bytes)")
+
+
+if __name__ == "__main__":
+    main()

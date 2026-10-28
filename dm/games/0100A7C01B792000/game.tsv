@@ -1,0 +1,48 @@
+# EXPERIMENTAL / UNTESTED: Minecraft Dungeons II, Switch title 0100A7C01B792000.
+# Provenance: nxnative survey of v65536, display version 1.1.1.0, 2026-10-28.
+# This is a bring-up profile, NOT a claim of iPad or Mac playability.
+# Unreal Engine 4, Nintendo NVN, Nintendo SDK 20.5.15, Wwise, Havok.
+# See README.md before attempting a build. No game assets or console keys are committed.
+
+# ---- Identity and app ----
+title_id	0100A7C01B792000
+program_id	0100A7C01B792000
+name	Minecraft Dungeons II
+ipa	MinecraftDungeonsII.ipa
+app_category	public.app-category.games
+
+# ---- Verified updated build (do not invent v0 build IDs) ----
+build	v65536	1.1.1.0	main=9e9d887d59f7f7db176b35e3379258b9	subsdk0=3904a8dee6801472d56bd4921378df27	sdk=190030518b5d64e5d87b84bc54661af9
+package	v65536
+shader_versions	v65536
+
+# ---- Modules / RomFS ----
+# The survey found main, rtld, sdk and subsdk0; rtld is replaced by nxnative.
+modules	main subsdk0 sdk
+# The survey proves Dungeons/Content contains 49 files. This directory marker
+# deliberately does not invent an unobserved individual .ucas filename.
+# Replace with a specific file after inspecting the private RomFS manifest.
+romfs_marker	Dungeons/Content
+zip_store	.pak:.ucas:.utoc:.mp4:.cache:.metallib
+
+# ---- Experimental iOS-sized address layout ----
+# The survey's provisional 0x1028000000 is ~64 GiB, unsuitable for iOS.
+# Other nxnative Unreal ports use a 5 GiB guest reservation, 4.375 GiB alias.
+# This *only* bounds the host guest block. The Unreal engine itself still
+# requests ~62 GiB and FMallocBinned3 ~37 GiB unless patched/intercepted.
+# The game argument works on certain other UE ports but is NOT verified here.
+game_args	-SwitchVirtualAddressSpaceSize=4064
+mem_reserve	0x140000000
+mem_alias	0x118000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+sys_resource	0x1400000
+
+# ---- Controller; no unverified performance defaults ----
+pad_layout	full
+
+# ---- Shader sources ----
+# Engine markers and .pak/.utoc/.ucas resources are observed, but the shader
+# archives' locations/compression are not yet verified for this exact build.
+shader_groups	ShaderArchive-Global-=global ShaderArchive-=game
+shader_note	Minecraft Dungeons II v65536 shader sources (unverified)
