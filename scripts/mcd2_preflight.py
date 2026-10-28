@@ -13,6 +13,11 @@ import sys
 import build_ipa_from_nsp as nx
 
 
+# Verified filename metadata supplied for the Switch 1 target; not a cryptographic
+# proof of game identity. Update title ID is the base title ID + 0x800.
+EXPECTED_BASE_TITLE = 0x0100A7C01B792000
+
+
 class PairingError(ValueError):
     pass
 
@@ -24,8 +29,13 @@ def inspect_folder(folder: Path):
         title_id, family = nx.scan_nsps(folder)
     except (nx.BuildError, OSError, ValueError) as exc:
         raise PairingError(str(exc)) from exc
+    if title_id != EXPECTED_BASE_TITLE:
+        raise PairingError(
+            f"Unexpected base title ID {title_id:016X}; expected "
+            f"{EXPECTED_BASE_TITLE:016X} for the supplied Minecraft Dungeons II files."
+        )
     if not family['updates']:
-        raise PairingError("No update detected. Keep the base NSP/XCI and matching update NSP/NSZ together.")
+        raise PairingError("No update detected. Verify the matching update really has an .nsp or .nsz extension; nxnative ignores extensionless files. Keep base and update together.")
     # Unknown games have no registered version table, so the update needs its
     # real [vNUMBER] file-name tag to be selected instead of silently using v0.
     available = nx.nsp_versions(family, {})
