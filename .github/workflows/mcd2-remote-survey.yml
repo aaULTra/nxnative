@@ -122,29 +122,34 @@ jobs:
           }
           download_nsp "$BASE_URL" "$folder/Minecraft Dungeons 2 [0100A7C01B792000][v0].nsp" 1662600274
           download_nsp "$UPDATE_URL" "$folder/Minecraft Dungeons 2 [0100A7C01B792800][v65536].nsp" 2943659595
-      - name: Validate header metadata and survey the merged game
+      - name: Validate pairing and extract only ExeFS + RomFS metadata
         shell: bash
         run: |
           set -euo pipefail
           folder="$RUNNER_TEMP/mcd2/game"
+          base="$folder/Minecraft Dungeons 2 [0100A7C01B792000][v0].nsp"
+          update="$folder/Minecraft Dungeons 2 [0100A7C01B792800][v65536].nsp"
+          survey="$folder/0100A7C01B792000_survey"
           python scripts/mcd2_preflight.py "$folder" --keys "$RUNNER_TEMP/mcd2/prod.keys"
-          # The repository now has an experimental profile; --provisional
-          # forces the survey path instead of attempting an IPA on Linux.
-          python scripts/build_ipa_from_nsp.py "$folder" -k "$RUNNER_TEMP/mcd2/prod.keys" --provisional --survey-only --progress off
-          python scripts/mcd2_deep_diagnostics.py "$folder/0100A7C01B792000_survey" --output "$GITHUB_WORKSPACE/mcd2-deep-diagnostics.md"
-          report="$folder/0100A7C01B792000_survey/survey.md"
-          test -s "$report"
-          cp "$report" "$GITHUB_WORKSPACE/mcd2-survey.md"
-          # Replace temporary runner paths, which vary between executions.
-          sed -i "s|$RUNNER_TEMP|[ephemeral-runner]|g" "$GITHUB_WORKSPACE/mcd2-survey.md"
+          # The full survey's instruction census already ran successfully in
+          # 40787097883. Repeating 30+ million instructions every time adds
+          # minutes without improving this targeted archive/memory diagnostic.
+          # nx_extract --manifest writes the merged ExeFS and a text listing
+          # of RomFS paths and sizes, without unpacking the 3.87 GiB RomFS.
+          dotnet build dm/tools/nx_extract -c Release -v quiet --nologo
+          mkdir -p "$survey/extract"
+          dotnet run --project dm/tools/nx_extract -c Release --no-build -- \
+            "$RUNNER_TEMP/mcd2/prod.keys" "$base" "$update" "$survey/extract" --manifest
+          test -s "$survey/extract/ExeFS/main"
+          test -s "$survey/extract/romfs_manifest.tsv"
+          python scripts/mcd2_deep_diagnostics.py "$survey" --output "$GITHUB_WORKSPACE/mcd2-deep-diagnostics.md"
+          test -s "$GITHUB_WORKSPACE/mcd2-deep-diagnostics.md"
       - name: Upload survey text only (public repository artifact, no game files)
         if: success()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: mcd2-survey-report
-          path: |
-            mcd2-survey.md
-            mcd2-deep-diagnostics.md
+          name: mcd2-deep-diagnostics
+          path: mcd2-deep-diagnostics.md
           if-no-files-found: error
           retention-days: 1
       - name: Delete the temporary game and keys
