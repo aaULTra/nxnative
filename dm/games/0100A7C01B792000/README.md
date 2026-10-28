@@ -20,6 +20,41 @@
 
 The public synthetic tests and the Linux extraction ran successfully with the base+update pair. The full survey is available from GitHub Actions run `40787097883` as a short-lived `mcd2-survey-report` artifact. The game binaries, keys and decrypted content do **not** belong in this public repository.
 
+## iPadOS signing target: Increased Memory Limit without Extended Virtual Addressing
+
+The owner can use `com.apple.developer.kernel.increased-memory-limit` but **cannot**
+use `com.apple.developer.kernel.extended-virtual-addressing`. These are
+distinct entitlements: the first can increase the permitted resident memory
+on supported devices; it does not promise a larger virtual address space.
+The iOS signing script (`dm/ios/tools/build_ipa.sh`) currently requests
+**Increased Memory Limit only** by default, both for the ad-hoc-signed IPA
+and the prepared Xcode project. Do not add Extended Virtual Addressing
+to this title's profile, build or signing requirements.
+
+This title therefore keeps a **single 5 GiB guest address reservation** and
+the 4.375 GiB alias partition already chosen. The nxnative host documents
+a real-device 6 GiB successful single reservation without Extended Virtual
+Addressing, but larger reservations and fragmented overall process address
+space cannot be assumed safe. Do not enlarge `mem_reserve` or set
+`DM_ALIAS_SIZE` to create a larger guest reservation as a workaround.
+
+The launcher already displays **Memory available** using Apple's
+`os_proc_available_memory()`, refreshed every two seconds. Use that
+value on the signed iPad build to check the *actual available physical-memory
+headroom*, rather than inferring it from a 5 GiB `mmap` reservation.
+Signing/ad-hoc entitlement requests are **not proof** the final installation
+retains the entitlement: verify the installed app's signature/provisioning
+and the measured headroom on device.
+
+The primary unresolved memory issues are still Unreal's approximately
+62 GiB address-region reservation and FMallocBinned3's approximately
+37 GiB pool reservation. The test profile's `game_args` is an
+unverified hypothesis. Those engine allocations must be bounded or
+replaced **without** disabling integrity checks, without silently
+truncating them, and with opcode-verified patches of this game's exact
+build ID. Even an increased resident-memory allowance cannot make the
+original giant virtual reservations work.
+
 ## Bounded memory configuration: a hypothesis, not a patch
 
 The survey's auto-guess reserves roughly 64 GiB of guest address space, because modern Unreal's `nninitStartup` asks for a 62 GiB address region and FMallocBinned3 is expected to reserve ~37 GiB of it. Merely changing `mem_reserve` in `game.tsv` does **not** fix either request. A boot attempt with the current profile could still fail during engine memory setup.
