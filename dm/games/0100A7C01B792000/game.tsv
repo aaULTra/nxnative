@@ -1,7 +1,7 @@
 # EXPERIMENTAL / UNTESTED: Minecraft Dungeons II, Switch title 0100A7C01B792000.
 # Provenance: nxnative survey of v65536, display version 1.1.1.0, 2026-10-28.
 # This is a bring-up profile, NOT a claim of iPad or Mac playability.
-# Unreal Engine 4, Nintendo NVN, Nintendo SDK 20.5.15, Wwise, Havok.
+# Unreal Engine 5.6.1, Nintendo NVN, Nintendo SDK 20.5.15, Wwise, Havok.
 # See README.md before attempting a build. No game assets or console keys are committed.
 
 # ---- Identity and app ----
@@ -19,10 +19,9 @@ shader_versions	v65536
 # ---- Modules / RomFS ----
 # The survey found main, rtld, sdk and subsdk0; rtld is replaced by nxnative.
 modules	main subsdk0 sdk
-# The survey proves Dungeons/Content contains 49 files. This directory marker
-# deliberately does not invent an unobserved individual .ucas filename.
-# Replace with a specific file after inspecting the private RomFS manifest.
-romfs_marker	Dungeons/Content
+# Verified by the second, metadata-only survey (run 40789063074).
+# The merged RomFS contains this file and its matching Dungeons-Switch.utoc.
+romfs_marker	Dungeons/Content/Paks/Dungeons-Switch.ucas
 zip_store	.pak:.ucas:.utoc:.mp4:.cache:.metallib
 
 # ---- Experimental iOS-sized address layout ----
@@ -42,7 +41,7 @@ sys_resource	0x1400000
 pad_layout	full
 
 # ---- Shader sources ----
-# Engine markers and .pak/.utoc/.ucas resources are observed, but the shader
-# archives' locations/compression are not yet verified for this exact build.
+# UnrealEngine-5_6_1 marker and .pak/.utoc/.ucas resources were observed;
+# shader library locations and compression are not yet verified for this build.
 shader_groups	ShaderArchive-Global-=global ShaderArchive-=game
 shader_note	Minecraft Dungeons II v65536 shader sources (unverified)

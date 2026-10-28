@@ -39,9 +39,8 @@ class TestMcd2GameProfile(unittest.TestCase):
     def test_module_order_and_assets(self):
         g = self.profile
         self.assertEqual(g.words("modules"), ["main", "subsdk0", "sdk"])
-        # This directory was actually seen in the survey; an exact file marker
-        # remains a later checkpoint. Do not invent one here.
-        self.assertEqual(g.get("romfs_marker"), "Dungeons/Content")
+        # This exact file and matching TOC were verified by the second survey.
+        self.assertEqual(g.get("romfs_marker"), "Dungeons/Content/Paks/Dungeons-Switch.ucas")
         self.assertIn(".ucas", g.get("zip_store"))
         self.assertIn(".utoc", g.get("zip_store"))
 

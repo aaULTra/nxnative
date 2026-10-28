@@ -13,10 +13,14 @@
 | `sdk` build ID | `190030518b5d64e5d87b84bc54661af9` |
 | `subsdk0` build ID | `3904a8dee6801472d56bd4921378df27` |
 | SDK | NintendoSDK_nnSdk-20_5_15 (SDK 20.5.15) |
-| Engine/API | Unreal Engine 4; NVN; Havok; Wwise |
+| Engine/API | **Unreal Engine 5.6.1** (`UnrealEngine-5_6_1` in updated `main`); NVN; Havok; Wwise |
 | NPDM system resource | 20 MiB |
 | RomFS | 61 files, 3.87 GiB; 2 `.ucas`, 2 `.utoc`, 1 `.pak`, 44 `.mp4` |
 | Instruction census | 30,284,432 main instructions; 1,674,226 sdk; 875,249 subsdk0 |
+
+A second targeted survey (GitHub Actions run `40789063074`) verified the Unreal 5.6.1 version string, the exact `Dungeons-Switch.ucas` and `global.ucas` paths, and six possible 62 GiB constant instructions at `main+0x14380`, `+0x14a18`, `+0x14a24`, `+0x67916a0`, `+0x6e68f90`, and `+0x6e8d990`. These offsets are **candidates only**: none has been examined in context or verified as a safe patch. The three low offsets are nearer to other Unreal 5.6 startup regions than the three high offsets, but proximity alone is not proof of their role.
+
+The observed archives are `Dungeons/Content/Paks/Dungeons-Switch.ucas` (3,800,288,256 bytes), `Dungeons-Switch.utoc` (7,878,448 bytes), `Dungeons-Switch.pak` (243,619,477 bytes), and `global.ucas`/`global.utoc` (3,797,488/890 bytes). These are game-file metadata, not proof of any shader library's layout.
 
 The public synthetic tests and the Linux extraction ran successfully with the base+update pair. The full survey is available from GitHub Actions run `40787097883` as a short-lived `mcd2-survey-report` artifact. The game binaries, keys and decrypted content do **not** belong in this public repository.
 
@@ -65,10 +69,10 @@ The game's exact `main` build is not the build from any other profile. **Do not 
 
 ## Specific next checkpoints
 
-1. **Assets:** use the existing private runner with the owner's original base and `v65536` update. Extract a *text-only* RomFS manifest to choose the real, stable `.ucas` path as `romfs_marker`; `Dungeons/Content` is only a directory known to exist from the survey.
+1. **Assets:** done. The merged RomFS manifest verified `Dungeons/Content/Paks/Dungeons-Switch.ucas` and its matching `.utoc`; the profile now has this exact marker. Next extract the shader archive layout privately.
 2. **Code bring-up:** inspect and bound Unreal's 62 GiB address-region request, identify whether `-SwitchVirtualAddressSpaceSize=4064` works, then identify FMallocBinned3's allocator-constructor site and vtable layout for this exact build. Verify instruction bytes before registering cuts or an observation gate.
 3. **SDK:** inspect `sdk` 20.5.15's node-area reservation and virtual-address alignment. Existing SDK 20.5.17 work is a reference, not proof the offsets match.
-4. **Shader libraries:** inspect `.pak` and both IoStore `.utoc`/`.ucas` pairs. The survey found Unreal and NVN, but did not extract or count shader archives. Existing `uepak.py` supports IoStore and may require Oodle decoding through the Mac host.
+4. **Shader libraries:** inspect `.pak` and both IoStore `.utoc`/`.ucas` pairs. The survey found Unreal 5.6.1 and NVN, but did not extract or count shader archives. Existing `uepak.py` supports IoStore and may require Oodle decoding through the Mac host.
 5. **Mac bring-up:** rewrite the modules, run the Mac host with `DM_SVC=1 DM_WATCH=20` and keep the first crash, `[RED]` lines and memory reservation trace. Mac compilation alone cannot verify on-device graphics.
 6. **iPad testing:** only after the host reaches frames should an unsigned IPA be prepared and signed for the owner's device. Test controls, audio, shaders, memory headroom and heat. Do not claim a 60 fps target before measured gameplay.
 
@@ -76,7 +80,7 @@ The game's exact `main` build is not the build from any other profile. **Do not 
 
 - No FPS override is applied. For Unreal games, forcing 60 can alter speed if their frame timing is fixed.
 - No `tex_dyn_slots`, texture flush, render conditional or SDK-specific overrides are enabled without a graphics trace.
-- A `romfs_marker` directory is provisional. The manifest's exact largest / game `.ucas` path is preferable.
+- The `romfs_marker` is an observed file path, not guessed. It has not been tested in a packed IPA.
 - Shader groups are an Unreal source hypothesis; a real split must locate and count shaders.
 
 ## Testing from the fork (without NSPs)
