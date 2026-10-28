@@ -64,6 +64,20 @@ class TestMcd2GameProfile(unittest.TestCase):
         self.assertEqual(g.get("pad_layout"), "full")
         self.assertIn("SwitchVirtualAddressSpaceSize=4064", g.get("game_args"))
 
+    def test_ipa_signing_requests_increased_memory_only(self):
+        # This title must work without the extended-virtual-addressing
+        # entitlement. Its default IPA build must carry Increased Memory
+        # Limit only. Installation signing must still grant that request.
+        build = (ROOT / "dm" / "ios" / "tools" / "build_ipa.sh").read_text()
+        self.assertIn("com.apple.developer.kernel.increased-memory-limit", build)
+        self.assertNotIn("com.apple.developer.kernel.extended-virtual-addressing", build)
+        self.assertLessEqual(self.profile.int("mem_reserve"), 0x140000000)
+
+    def test_launcher_reports_actual_headroom(self):
+        # Never infer physical-memory availability from virtual reservations.
+        launcher = (ROOT / "dm" / "ios" / "Sources" / "Launcher.swift").read_text()
+        self.assertIn("os_proc_available_memory()", launcher)
+
     def test_host_profile_header_renders(self):
         header = game.header(self.profile)
         self.assertIn("DM_GAME_PROGRAM_ID 0x0100A7C01B792000ull", header)
