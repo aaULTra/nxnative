@@ -1,0 +1,133 @@
+# Rewrite the actual updated Switch code into nxnative's Apple-ARM64 host image.
+# This is NOT an IPA build, emulator boot or graphics test.
+name: MCD2 Mac executable rewrite
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/mcd2-mac-rewrite.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rewrite:
+    # Never expose secrets to pull requests. A newly-merged workflow triggers
+    # one main-branch run; later reruns are explicit manual dispatch only.
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    name: Rewriter proof (real v65536 modules; no IPA)
+    runs-on: xcode-27
+    timeout-minutes: 90
+    env:
+      BASE_URL: ${{ secrets.MCD2_BASE_URL }}
+      UPDATE_URL: ${{ secrets.MCD2_UPDATE_URL }}
+      KEYS_TEXT: ${{ secrets.MCD2_PROD_KEYS }}
+      DM_GAME: '0100A7C01B792000'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install analysis dependencies and verify host architecture
+        run: |
+          python -m pip install lz4 capstone fonttools gdown
+          test "$(uname -m)" = arm64
+          python dm/games/game.py 0100A7C01B792000 package
+      - name: Prepare private game keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$BASE_URL" && test -n "$UPDATE_URL" && test -n "$KEYS_TEXT" || {
+            echo "::error::Set the three MCD2 repository secrets first"; exit 1;
+          }
+          umask 077
+          mkdir -p "$RUNNER_TEMP/mcd2/game"
+          printf '%s\n' "$KEYS_TEXT" > "$RUNNER_TEMP/mcd2/prod.keys"
+      - name: Fetch owned NSP base and v65536 update from private links
+        shell: bash
+        run: |
+          set -euo pipefail
+          folder="$RUNNER_TEMP/mcd2/game"
+          download_nsp() {
+            local url="$1" output="$2" expected="$3"
+            case "$url" in
+              https://drive.google.com/*) gdown --quiet --continue --retries 3 "$url" -O "$output";;
+              https://*) curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location --retry 3 --silent --show-error --output "$output" "$url";;
+              *) echo "::error::Invalid NSP URL scheme"; return 1;;
+            esac
+            test "$(stat -f '%z' "$output")" = "$expected" || {
+              echo "::error::NSP size differs from Drive metadata"; return 1;
+            }
+          }
+          download_nsp "$BASE_URL" "$folder/Minecraft Dungeons 2 [0100A7C01B792000][v0].nsp" 1662600274
+          download_nsp "$UPDATE_URL" "$folder/Minecraft Dungeons 2 [0100A7C01B792800][v65536].nsp" 2943659595
+      - name: Verify package pairing and extract updated ExeFS (manifest only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          folder="$RUNNER_TEMP/mcd2/game"
+          python scripts/mcd2_preflight.py "$folder" --keys "$RUNNER_TEMP/mcd2/prod.keys"
+          dotnet build dm/tools/nx_extract -c Release -v quiet --nologo
+          mkdir -p "$RUNNER_TEMP/mcd2/extract"
+          dotnet run --project dm/tools/nx_extract -c Release --no-build -- \
+            "$RUNNER_TEMP/mcd2/prod.keys" \
+            "$folder/Minecraft Dungeons 2 [0100A7C01B792000][v0].nsp" \
+            "$folder/Minecraft Dungeons 2 [0100A7C01B792800][v65536].nsp" \
+            "$RUNNER_TEMP/mcd2/extract" --manifest
+          for mod in main sdk subsdk0; do test -s "$RUNNER_TEMP/mcd2/extract/ExeFS/$mod"; done
+      - name: Rewrite main module into Apple ARM64 image
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mcd2/patched"
+          python -u dm/tools/patch_nso.py "$RUNNER_TEMP/mcd2/extract/ExeFS/main" "$RUNNER_TEMP/mcd2/patched" main
+          test -s "$RUNNER_TEMP/mcd2/patched/main.patched.bin"
+      - name: Rewrite sdk and movie module
+        shell: bash
+        run: |
+          set -euo pipefail
+          for mod in sdk subsdk0; do
+            python -u dm/tools/patch_nso.py "$RUNNER_TEMP/mcd2/extract/ExeFS/$mod" "$RUNNER_TEMP/mcd2/patched" "$mod"
+            test -s "$RUNNER_TEMP/mcd2/patched/$mod.patched.bin"
+          done
+      - name: Create safe text-only build summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          source = Path(os.environ["RUNNER_TEMP"]) / "mcd2/patched"
+          dst = Path(os.environ["GITHUB_WORKSPACE"]) / "mcd2-rewrite-summary.md"
+          lines = ["# MCD2 updated Apple ARM64 module rewrite", "",
+                   "Preflight only: does not prove boot, graphics, performance or iPad compatibility.",
+                   "No NSPs, keys, compiled modules or decrypted game files are published.", ""]
+          for module in ("main", "sdk", "subsdk0"):
+              binary = source / (module + ".patched.bin")
+              fixups = (source / (module + ".fixups.tsv")).read_text().splitlines()
+              build = next((l.split("\t", 1)[1] for l in fixups if l.startswith("# BUILD_ID\t")), "unknown")
+              lines.append(f"- {module}: build ID {build}, rewritten size {binary.stat().st_size:,} bytes")
+          lines += ["", "Unreal's FMallocBinned3 interception is not yet registered for this build.",
+                    "The 5 GiB guest block is a profile choice, not verified boot behaviour.",
+                    "Increased Memory Limit only; no Extended Virtual Addressing assumed."]
+          dst.write_text("\n".join(lines) + "\n")
+          print("Wrote metadata-only module rewrite summary.")
+          PY
+      - name: Upload summary only (never guest code)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mcd2-rewrite-summary
+          path: mcd2-rewrite-summary.md
+          if-no-files-found: error
+          retention-days: 1
+      - name: Delete keys, NSPs and rewritten modules
+        if: always()
+        shell: bash
+        run: rm -rf -- "$RUNNER_TEMP/mcd2"
