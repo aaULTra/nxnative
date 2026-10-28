@@ -34,9 +34,11 @@ The repository includes `.github/workflows/mcd2-remote-survey.yml`, which first 
 
 A second job is **opt-in only** and requires user-controlled, expiring HTTPS downloads and GitHub repository Actions secrets:
 
-- `MCD2_BASE_URL`: HTTPS download URL for the base NSP
-- `MCD2_UPDATE_URL`: HTTPS download URL for the update NSP
+- `MCD2_BASE_URL`: Google Drive **file** sharing link (or another HTTPS direct download URL) for the base NSP
+- `MCD2_UPDATE_URL`: Google Drive **file** sharing link (or another HTTPS direct download URL) for the update NSP
 - `MCD2_PROD_KEYS`: the contents of your own `prod.keys` file
+
+For Google Drive on iPad: upload the two NSP files, separately choose **Manage access → General access → Anyone with the link → Viewer**, then **Copy link** and use each unchanged URL as a separate repository secret. The workflow uses `gdown` for Drive links to avoid downloading an HTML preview rather than the 1.66 GB and 2.94 GB NSPs. Once the survey has completed, change each file back to **Restricted**. Anyone who learns an unrestricted sharing link can download the file, even if the URL is stored in GitHub Secrets. Avoid folder links: this workflow expects two individual files.
 
 Set these only using GitHub's **Settings → Secrets and variables → Actions**. **Never send the keys or URLs in chat, issues, pull requests, source files, or workflow inputs.** Remember: a public repository's workflow metadata, text logs and artifacts can be visible to others. The optional job uploads only the survey Markdown report (retained for one day), not game binaries or keys. Anyone with write access to the repository may be able to alter code that runs with secrets; review permissions and consider a separate private working repository before adding them. These are credentials sent to GitHub's runner, and cannot be described as local-only.
 
