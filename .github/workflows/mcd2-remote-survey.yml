@@ -3,11 +3,22 @@
 name: MCD2 remote survey
 
 on:
+  # One diagnostic rerun on merging changes to this specific survey workflow
+  # or scanner. Never runs on an untrusted pull request with secrets.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/mcd2-remote-survey.yml'
+      - 'scripts/mcd2_deep_diagnostics.py'
   pull_request:
     paths:
       - '.github/workflows/mcd2-remote-survey.yml'
       - 'scripts/mcd2_preflight.py'
       - 'scripts/tests/test_mcd2_preflight.py'
+      - 'scripts/tests/test_mcd2_deep_diagnostics.py'
+      - 'scripts/tests/test_mcd2_profile.py'
+      - 'scripts/mcd2_deep_diagnostics.py'
+      - 'dm/games/0100A7C01B792000/**'
   workflow_dispatch:
     inputs:
       run_survey:
@@ -38,7 +49,7 @@ jobs:
         run: python -m pip install lz4 capstone fonttools gdown
       - name: Verify Google Drive downloader is installed
         run: gdown --help >/dev/null
-      - name: Test nxnative's base and update pairing
+      - name: Test MCD2 pairing, profile and diagnostic scanners
         run: python -m unittest discover -s scripts/tests -p 'test_mcd2_*.py' -v
       - name: Compile the original Switch NSP manifest extractor on Linux
         run: dotnet build dm/tools/nx_extract -c Release -v quiet --nologo
@@ -46,8 +57,9 @@ jobs:
         run: python scripts/build_ipa_from_nsp.py --help >/dev/null
 
   private-game-survey:
-    # No secrets are exposed to pull requests. Explicit manual runs on main only.
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.run_survey }}
+    # No secrets are exposed to pull requests. Only main-branch pushes that
+    # change this diagnostic workflow/scanner, or explicit manual runs, can run.
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.run_survey)) }}
     name: Generate base + v65536 survey
     needs: linux-toolchain
     runs-on: ubuntu-24.04
@@ -116,7 +128,10 @@ jobs:
           set -euo pipefail
           folder="$RUNNER_TEMP/mcd2/game"
           python scripts/mcd2_preflight.py "$folder" --keys "$RUNNER_TEMP/mcd2/prod.keys"
-          python scripts/build_ipa_from_nsp.py "$folder" -k "$RUNNER_TEMP/mcd2/prod.keys" --survey-only --progress off
+          # The repository now has an experimental profile; --provisional
+          # forces the survey path instead of attempting an IPA on Linux.
+          python scripts/build_ipa_from_nsp.py "$folder" -k "$RUNNER_TEMP/mcd2/prod.keys" --provisional --survey-only --progress off
+          python scripts/mcd2_deep_diagnostics.py "$folder/0100A7C01B792000_survey" --output "$GITHUB_WORKSPACE/mcd2-deep-diagnostics.md"
           report="$folder/0100A7C01B792000_survey/survey.md"
           test -s "$report"
           cp "$report" "$GITHUB_WORKSPACE/mcd2-survey.md"
@@ -127,7 +142,9 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mcd2-survey-report
-          path: mcd2-survey.md
+          path: |
+            mcd2-survey.md
+            mcd2-deep-diagnostics.md
           if-no-files-found: error
           retention-days: 1
       - name: Delete the temporary game and keys
