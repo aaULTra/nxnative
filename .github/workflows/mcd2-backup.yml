@@ -1,9 +1,11 @@
 # One real-game pipeline: merged NSP extraction, Unreal shader decoding,
 # iOS Metal translation and IPA. Deliver into a dedicated owner-owned Drive
 # file; public artifacts remain compact text only.
-name: MCD2 observable backup build
+name: MCD2 live backup PR23
 
 on:
+  # One-off backup run explicitly requested by the owner in Codex.
+  create:
   # Downloading several GB is deliberately owner-triggered only.
   # Set the Google service account secret BEFORE starting a new run.
   workflow_dispatch:
@@ -23,7 +25,7 @@ concurrency:
 
 jobs:
   integrated:
-    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'create' && github.event.ref_type == 'branch' && github.event.ref == 'codex/mcd2-backup-run-pr23' }}
     name: iOS shaders, verified IPA and Drive delivery
     runs-on: xcode-27
     timeout-minutes: 240
@@ -35,7 +37,7 @@ jobs:
       MCD2_GDRIVE_SA_JSON: ${{ secrets.MCD2_GDRIVE_SA_JSON }}
       KEYS_TEXT: ${{ secrets.MCD2_PROD_KEYS }}
       DM_GAME: '0100A7C01B792000'
-      MCD2_OUTPUT_FILE: ${{ inputs.output_file }}
+      MCD2_OUTPUT_FILE: '1O-ZC4Sn14HxJ6GpP4mqZWzOzuag1mHyh'
       MCD2_STATUS_FILE: '1G-5_oP2paputxsh3tGTMIUOVSSmtWQdU'
       MCD2_CACHE_INDEX: '1koQFu120AJu3di6hJHuI5WDJss2hWrSR'
       MCD2_CACHE_A: '1O9tttTH9uIFiKzk8uEHZlQjledLRNZCC'
@@ -44,6 +46,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: '0129cb57387dcbf7024dae9b3077a6a28cedfa62'
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.14'
