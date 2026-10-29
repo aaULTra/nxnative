@@ -49,6 +49,75 @@ The output is separate from the runner cleanup; the owner can download it
 on the iPad, install it with their existing LiveContainer/signing setup and
 return the app's `Documents/log.txt` for actual device validation.
 
+## Verified upload failure and complete preparation recovery
+
+Run `40921864076` successfully built its IPA in 3,768 seconds. Archive
+validation passed for all 4,738,770,140 bytes. The next operation failed:
+Drive multi-chunk upload. Cleanup then deleted the ephemeral runner's IPA;
+that run has no recoverable binary output. This was delivery failure, not
+an archive-integrity or shader-compilation failure.
+
+A separately reproduced defect in the custom checkpoint transport is
+`httplib2` interpreting Drive's HTTP **308 Resume Incomplete** as an HTTP
+redirect and requiring a Location header. Drive
+uses 308 to acknowledge intermediate upload chunks. The shared
+`scripts/mcd2_drive_transport.py` removes only 308 from the transport's
+redirect codes, retaining ordinary redirects. A real synthetic upload of
+40 MiB + one byte reproduced `RedirectMissingLocation` with the old
+transport and passed stored size/MD5 verification with this fix. A smaller
+single-chunk probe had passed and was insufficient.
+
+Backup run `40927615593` subsequently succeeded using the existing IPA
+uploader: its archive passed CRC validation, and Drive delivery independently
+verified stored size/MD5 for **4,738,770,141 bytes** at 19:17 UTC. The first
+run's generic upload error did not record enough detail to prove it shared
+the checkpoint transport defect. The delivered backup is available; no
+additional full build is necessary just to obtain an IPA. Device boot is
+still untested. The partial-cache worker reported failed subsequent
+backups; successful IPA delivery does not establish full-stage recovery.
+
+**`MCD2 resumable prepared build`** (`.github/workflows/mcd2-resumable.yml`)
+checks the same multi-chunk write before downloading game data. It has its
+own status/output files and concurrency group. In order it:
+
+1. Verifies the inputs and attempts a compatible complete-stage restore.
+2. If none exists, runs the normal iOS preparation through full shader
+   completion, then saves and verifies the prepared code, selected profile
+   including generated tables, Metal libraries, completion fingerprints,
+   inputs stamps and reflection build summary in private Drive storage.
+3. Only after this checkpoint is verified does it compile the app and pack
+   the IPA. A restored run skips rewriting and shader translation/compile,
+   but re-extracts the merged game resources from the verified NSPs.
+4. Validates and uploads the IPA, then checks Drive size/MD5 independently.
+
+The two rotating prepared archive slots are separate from the earlier
+partial-cache slots. The complete archive has a 12 GiB payload limit and
+200,000-file limit, consumes the owner's Drive quota, and contains private
+derived game data. It excludes NSPs, keys, RomFS and raw logs. The index is
+committed only after the new slot's stored size/MD5 passes; a failed upload
+cannot replace the previous indexed generation. Restore checks archive
+size/MD5, safe regular paths, exact member manifest, every SHA-256 and the
+completed-stage contract before publishing any file.
+
+Reuse requires the exact verified input IDs/MD5s/sizes, compiler/SDK and
+chain plus a content digest of preparation dependencies (host/graphics/
+rewriter/profile tools and the NSP preparation script). An unrelated
+packaging/transport/workflow commit does not by itself invalidate shaders.
+Changes to these preparation dependencies require a fresh preparation.
+Repack uses the portable selected profile, and `build_ipa.sh` still validates
+its shader inputs and generated table stamps. No marker force-skips those
+checks. This adds a completed-stage boundary, not arbitrary line-by-line
+resume. The first successful real-game checkpoint and fresh-run restoration
+still require observation; synthetic restore tests do not establish that.
+
+Shader progress now counts **distinct completed output keys**, rather than
+the highest sorted index observed from out-of-order parallel workers.
+Final variants, generated reflection and completion stamps can still
+follow the numeric counter. Live status also reports only recognized child
+tool roles, their CPU/age and output counts/sizes; raw process arguments
+never leave the runner. CPU and unchanged counters are observations, not
+proof of a stall or completion.
+
 ## Mandatory checks for every subsequent MCD2 workflow
 
 1. **Input gate:** download the exact base and v65536 update through the
@@ -100,7 +169,10 @@ To enable **true cross-run binary resume**, first configure an owner-approved
 private persistent object store or a persistent self-hosted Apple-Silicon
 runner. The secure restore process must check the exact source file IDs,
 versions, toolchain, content hashes and stage fingerprints before reuse;
-until then cross-run resume is **not enabled**. No public repository upload
+until then cross-run resume is **not enabled in the basic workflow**.
+The separate complete-preparation workflow above implements a private
+completed-stage boundary; the older backup workflow below saves only a
+partial Metal cache. No public repository upload
 is a substitute for private storage.
 
 ## Optional readable status and partial shader-cache backup

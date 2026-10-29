@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from mcd2_drive_api_download import drive_file_id
+from mcd2_drive_transport import drive_client, safe_failure
 
 MAX_BYTES = 512 * 1024**2
 MAX_FILES = 100000
@@ -30,7 +31,8 @@ PHASES = {"Starting build", "Prepare extractor", "Extract merged base/update",
           "Rewrite executable modules", "Decode Unreal shaders", "Split and inventory shaders",
           "Translate and compile Metal shaders", "Compile shader pipelines",
           "Build Apple Silicon host", "Build/package iOS IPA", "Prepare game interface font",
-          "Other build stage"}
+          "Other build stage", "Prepared iOS inputs", "Saving prepared checkpoint", "Restoring prepared checkpoint",
+          "Verify IPA archive", "Upload IPA to Drive"}
 NUMBERS = {"elapsed_s", "phase_s", "done", "total", "log_idle_s", "counter_idle_s", "cpu_percent"}
 
 
@@ -138,15 +140,7 @@ def restore_cache(source, root, identity):
 
 class DriveStore:
     def __init__(self):
-        from google.oauth2 import service_account  # type: ignore[reportMissingImports]
-        from googleapiclient.discovery import build  # type: ignore[reportMissingImports]
-        import google_auth_httplib2  # type: ignore[reportMissingImports]
-        import httplib2  # type: ignore[reportMissingImports]
-        info = json.loads(os.environ["MCD2_GDRIVE_SA_JSON"])
-        cred = service_account.Credentials.from_service_account_info(
-            info, scopes=["https://www.googleapis.com/auth/drive"])
-        http = google_auth_httplib2.AuthorizedHttp(cred, http=httplib2.Http(timeout=20))
-        self.drive = build("drive", "v3", http=http, cache_discovery=False)
+        self.drive = drive_client(timeout=20)
 
     def check(self, ident, names):
         meta = self.drive.files().get(fileId=ident, supportsAllDrives=True,
@@ -167,7 +161,7 @@ class DriveStore:
                                   media_body=MediaIoBaseUpload(data, mimetype="text/plain"),
                                   fields="id").execute(num_retries=2)
 
-    def upload(self, ident, path):
+    def upload(self, ident, path, progress=None):
         from googleapiclient.http import MediaFileUpload  # type: ignore[reportMissingImports]
         size, md5 = Path(path).stat().st_size, digest(path, "md5")
         request = self.drive.files().update(fileId=ident, supportsAllDrives=True,
@@ -177,17 +171,19 @@ class DriveStore:
         while result is None:
             if time.monotonic() >= deadline:
                 raise TimeoutError("Bounded shader-cache upload expired")
-            _, result = request.next_chunk(num_retries=2)
+            status, result = request.next_chunk(num_retries=2)
+            if progress and status is not None:
+                progress(status.progress())
         meta = self.drive.files().get(fileId=ident, fields="size,md5Checksum").execute(num_retries=2)
         if int(meta.get("size", -1)) != size or meta.get("md5Checksum") != md5:
             raise ValueError("Stored shader cache size/checksum mismatch")
         return {"size": size, "md5": md5}
 
-    def download(self, ident, target, record):
+    def download(self, ident, target, record, max_bytes=MAX_BYTES + 128 * 1024**2):
         from googleapiclient.http import MediaIoBaseDownload  # type: ignore[reportMissingImports]
         meta = self.drive.files().get(fileId=ident, fields="size,md5Checksum").execute(num_retries=2)
         if (int(meta.get("size", -1)) != record["size"] or meta.get("md5Checksum") != record["md5"]
-                or not 0 < record["size"] <= MAX_BYTES + 128 * 1024**2):
+                or not 0 < record["size"] <= max_bytes):
             raise ValueError("Stored checkpoint differs from the committed checkpoint index")
         with Path(target).open("wb") as stream:
             transfer = MediaIoBaseDownload(stream, self.drive.files().get_media(fileId=ident),
@@ -220,12 +216,13 @@ def environment_identity(repo, folder):
 class CloudSession:
     """Independent status and cache workers; neither blocks the build watcher."""
     def __init__(self, folder, identity, ids, factory: Callable[[], Any] = DriveStore,
-                 interval: float = 20, cache_interval: float = 600):
+                 interval: float = 20, cache_interval: float = 600, cache_enabled=True):
         self.folder, self.identity, self.ids, self.factory = Path(folder), identity, ids, factory
         self.root = self.folder / "0100A7C01B792000_build/shader/cache/cas/metallib"
         self.interval, self.cache_interval = interval, cache_interval
         self.lock, self.stop, self.capture = threading.Lock(), threading.Event(), threading.Event()
         self.finished = False
+        self.cache_enabled = cache_enabled
         run_id = os.environ.get("GITHUB_RUN_ID", "local")
         self.state = {"schema": 1, "run_id": run_id, "state": "starting", "sampled_at": utc(),
                       "phase": "Starting build", "cache_state": "not_saved", "restored_files": 0}
@@ -254,10 +251,16 @@ class CloudSession:
 
     def start(self):
         store = self.factory()
-        for key, names in (("status", {"MCD2-live-status.json"}), ("index", {"MCD2-cache-index.json"}),
-                           ("a", {"MCD2-cache-A.tar.pending"}), ("b", {"MCD2-cache-B.tar.pending"})):
+        checks = [("status", {"MCD2-live-status.json"})]
+        if self.cache_enabled:
+            checks += [("index", {"MCD2-cache-index.json"}), ("a", {"MCD2-cache-A.tar.pending"}),
+                       ("b", {"MCD2-cache-B.tar.pending"})]
+        for key, names in checks:
             store.check(self.ids[key], names)
         store.put_json(self.ids["status"], self.snapshot())
+        if not self.cache_enabled:
+            self.status_thread.start()
+            return
         # Index is separate from live status and changes only after verified uploads.
         try:
             index = store.get_json(self.ids["index"])
@@ -314,16 +317,18 @@ class CloudSession:
                         self.note(cache_state="saved", cache_files=count, cache_saved_at=row["saved_at"])
                     else:
                         self.note(cache_state="no_compiled_cache_yet")
-            except Exception:
-                self.note(cache_state="backup_failed_previous_generation_retained")
+            except Exception as exc:
+                self.note(cache_state="backup_failed_previous_generation_retained" if self.last
+                          else "backup_failed_no_verified_generation", cache_error=safe_failure(exc))
             if self.finished:
                 return
 
-    def close(self, code):
+    def close(self, code, success_state='packaged'):
         self.finished = True
         self.capture.set()
-        self.cache_thread.join(timeout=60)
-        self.note(state="packaged" if code == 0 else "failed", exit_code=code, sampled_at=utc(),
+        if self.cache_enabled:
+            self.cache_thread.join(timeout=60)
+        self.note(state=success_state if code == 0 else "failed", exit_code=code, sampled_at=utc(),
                   cache_worker_active=self.cache_thread.is_alive())
         self.stop.set()
         self.status_thread.join(timeout=45)
@@ -344,13 +349,18 @@ def main():
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--begin", action="store_true")
     mode.add_argument("--final-state", choices=("success", "failure", "cancelled"))
+    parser.add_argument('--status-only', action='store_true')
     args = parser.parse_args()
     try:
-        ids = configured_ids()
+        ids = ({'status': drive_file_id(os.environ['MCD2_STATUS_FILE'])}
+               if args.status_only else configured_ids())
         store = DriveStore()
         if args.begin:
-            for key, name in (("status", "MCD2-live-status.json"), ("index", "MCD2-cache-index.json"),
-                              ("a", "MCD2-cache-A.tar.pending"), ("b", "MCD2-cache-B.tar.pending")):
+            checks = [('status', 'MCD2-live-status.json')]
+            if not args.status_only:
+                checks += [('index', 'MCD2-cache-index.json'), ('a', 'MCD2-cache-A.tar.pending'),
+                           ('b', 'MCD2-cache-B.tar.pending')]
+            for key, name in checks:
                 store.check(ids[key], {name})
             status = {"schema": 1, "run_id": os.environ.get("GITHUB_RUN_ID"),
                       "state": "preparing_inputs", "published_at": utc(), "sampled_at": utc()}

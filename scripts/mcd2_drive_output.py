@@ -8,13 +8,13 @@ storage; the service account never creates a file or changes permissions.
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path
 import plistlib
 import sys
 import zipfile
 
 from mcd2_drive_api_download import drive_file_id
+from mcd2_drive_transport import drive_client, safe_failure
 
 OUTPUT_NAME = "MinecraftDungeonsII.ipa"
 PENDING_NAME = OUTPUT_NAME + ".pending"
@@ -75,6 +75,7 @@ def deliver(drive, ident, ipa, media_factory):
     print("[DRIVE OUTPUT] Dedicated output file is editable", flush=True)
     if ipa is None:
         return
+    print(json.dumps({'ev': 'stage', 'name': 'verify IPA archive'}), flush=True)
     size, digest = validate_ipa(ipa)
     print(f"[DRIVE OUTPUT] IPA archive verified ({size:,} bytes)", flush=True)
     request = drive.files().update(
@@ -83,10 +84,13 @@ def deliver(drive, ident, ipa, media_factory):
                                 chunksize=32 * 1024 * 1024, resumable=True),
         fields="id,size,md5Checksum")
     result = None
+    print(json.dumps({'ev': 'stage', 'name': 'upload IPA'}), flush=True)
     while result is None:
         status, result = request.next_chunk(num_retries=5)
         if status is not None:
             print(f"[DRIVE OUTPUT] {int(status.progress() * 100)}% uploaded", flush=True)
+            print(json.dumps({'ev': 'progress', 'name': 'upload IPA', 'done': int(status.progress() * size),
+                              'total': size, 'unit': 'B'}), flush=True)
     # Read back stored metadata independently of the upload response.
     stored = drive.files().get(fileId=ident, supportsAllDrives=True,
                                fields="size,md5Checksum").execute(num_retries=5)
@@ -95,17 +99,12 @@ def deliver(drive, ident, ipa, media_factory):
 
 
 def run(output_link, credentials_env, ipa=None):
-    from google.oauth2 import service_account  # type: ignore[reportMissingImports]
-    from googleapiclient.discovery import build  # type: ignore[reportMissingImports]
     from googleapiclient.http import MediaFileUpload  # type: ignore[reportMissingImports]
 
     ident = drive_file_id(output_link)
-    info = json.loads(os.environ.get(credentials_env, "{}"))
-    if info.get("type") != "service_account" or not info.get("private_key"):
-        raise ValueError("Missing runner Drive service account credential")
-    credentials = service_account.Credentials.from_service_account_info(
-        info, scopes=["https://www.googleapis.com/auth/drive"])
-    drive = build("drive", "v3", credentials=credentials, cache_discovery=False)
+    if credentials_env != "MCD2_GDRIVE_SA_JSON":
+        raise ValueError("Use the configured runner service account credential")
+    drive = drive_client()
     deliver(drive, ident, ipa, MediaFileUpload)
 
 
@@ -117,10 +116,10 @@ def main():
     args = parser.parse_args()
     try:
         run(args.output, args.credentials_env, args.ipa)
-    except Exception:
+    except Exception as exc:
         # Google errors can contain request/session URLs. Keep public logs bounded.
         print("[RED] Drive output check/transfer failed; no verified delivery. "
-              "Check editor access, owner storage quota and IPA integrity.", file=sys.stderr)
+              f"Diagnostic category: {safe_failure(exc)}", file=sys.stderr)
         return 1
     return 0
 

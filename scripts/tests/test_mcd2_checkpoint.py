@@ -47,6 +47,18 @@ class TestVerifiedCheckpoint(unittest.TestCase):
             (work / "tools/dmhost.key").write_text("c" * 64 + "\n")
             self.assertEqual(cp.checkpoint(work, "Mac host"), "mac-host")
 
+    def test_ios_summary_is_in_reflection_cache_and_inputs_stamp_is_required(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td)
+            lib = work / 'shader/ios/b-abc'; lib.mkdir(parents=True)
+            summary = work / 'shader/cache/b-abc'; summary.mkdir(parents=True)
+            (work / 'shader/ios/b-abc.key').write_text('a' * 64)
+            (lib / 'example_b.metallib').write_bytes(b'metal')
+            (summary / '_b_build.json').write_text('[{"key":"example"}]')
+            self.assertIsNone(cp.checkpoint(work, 'iOS shaders'))
+            (lib / 'inputs.tsv').write_text('game\t0100A7C01B792000\ninputs\tabc\n')
+            self.assertEqual(cp.checkpoint(work, 'iOS shaders'), 'ios-metal-libraries')
+
     def test_unstamped_stage_and_unknown_name_not_reusable(self):
         with tempfile.TemporaryDirectory() as td:
             work = Path(td)

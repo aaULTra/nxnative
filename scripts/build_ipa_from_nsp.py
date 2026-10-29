@@ -1677,7 +1677,8 @@ class ShaderWatch:
     """Progress of dmsh_build.py, read from the files it writes (it prints nothing until it ends). It works in three phases:
     the cache check (a hit restores <key>_b.json into the library directory b-<chain>/: the iOS one, or the Mac's for a Mac-only build; a miss writes <key>.bin into its temporary folder dmsh_* under WORK),
     the translation of the misses (<key>.spv in the temporary folder), and the compile, which takes the keys in a fixed order (sorted, the vertex shaders with pixel pairs last)
-    and writes <key>_b.json again for every miss and every pixel shader: the furthest key written so far tells how far it got"""
+    and writes <key>_b.json again for every miss and every pixel shader. Count distinct outputs, not the highest completed index: parallel workers finish out of order.
+    Final variants, reflection and success stamps can still follow these outputs."""
     def __init__(self, g, out, tmp, pso_pairs=None):   # out: the library directory b-<chain>/ (the iOS one, or the Mac's for a Mac-only build)
         keys = set()
         for ln in g.table('shader_map.tsv').read_text(errors='replace').splitlines():   # the keys dmsh_build.py builds: column 4 of the rows from a shader package
@@ -1690,7 +1691,7 @@ class ShaderWatch:
         order = sorted(keys - pairs) + sorted(keys & pairs)
         self.pos, self.n = {k: i for i, k in enumerate(order)}, len(order)
         self.out, self.tmp, self.t0, self.t1, self.w = out, tmp, time.time(), None, None
-        self.hits, self.fin, self.top = set(), set(), -1
+        self.hits, self.fin = set(), set()
 
     def written(self, keys, since):   # those of keys whose <key>_b.json in the output was written after since
         found = set()
@@ -1714,8 +1715,8 @@ class ShaderWatch:
         if ext['.bin'] and not ext['.metal'] and ext['.spv'] < ext['.bin']:
             return {'step': 'translating', 'done': ext['.spv'], 'total': ext['.bin'], 'unit': 'shaders'}
         new = self.written(self.pos.keys() - self.fin, self.t1)
-        self.fin |= new; self.top = max([self.top] + [self.pos[k] for k in new])
-        return {'step': 'compiling' if ext['.bin'] else 'finishing', 'done': max(len(self.fin), self.top + 1), 'total': self.n, 'unit': 'shaders',
+        self.fin |= new
+        return {'step': 'compiling' if ext['.bin'] else 'finishing', 'done': len(self.fin | self.hits), 'total': self.n, 'unit': 'shader outputs',
                 'note': f'{ext[".bin"]:,} not cached' if ext['.bin'] else ''}
 
 
@@ -2069,6 +2070,7 @@ def parse_args(argv):
     ap.add_argument('--romfs', choices=('bundle', 'separate'), help='bundle = the game files go into the IPA (default: the ROMFS setting, bundle); separate = they stay out of the IPA and the Xcode app: the build is small and fast, and the RomFS image '
                     'is copied to the phone once per game version with the scripts/push_romfs.sh command printed at the end (the app refuses an image of another version)')
     ap.add_argument('--prepare-xcode', action='store_true', help='prepare a per-game Xcode project and add it to the shared workspace instead of packing an IPA (requires keeping extracted files)')
+    ap.add_argument('--stop-after-shaders', action='store_true', help='save portable iOS packaging inputs after successful shader preparation, before app compilation or IPA packing')
     ap.add_argument('--platform', choices=('ios', 'mac', 'mac-app'), help='ios = the IPA (or the Xcode project); mac = for development: build only what running the game on this Mac needs (the Mac shaders and the Mac host, '
                     'no iOS shaders, Xcode project or IPA), keep the extracted files and print the command that runs the game; mac-app = what mac builds, then a self-contained, double-clickable '
                     'Mac app of the game (default: <game name>.app in the NSP folder, -o names another) (default: the PLATFORM setting, ios)')
@@ -2153,6 +2155,29 @@ def report_profile_status(g, reg, pkg_ver, derived, provisional, artifact='IPA',
         say(f'  bring-up on the Mac: DM_GAMES_DIR="{g.dir.parent}" make -C dm/host GAME={g.id} dmhost, see docs/agents')
 
 
+def portable_package_context(work, g, env):
+    """Save only explicit packaging fields, with all game paths relative to work.
+    Never serialize the inherited environment (it may contain credentials).
+    Copy the selected profile including generated tables for a portable resume.
+    """
+    work = Path(work).resolve()
+    target = work / 'prepared_profile' / g.id
+    if target.resolve() != g.dir.resolve():
+        rmtree(target); shutil.copytree(g.dir, target, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+    values = {k: str(env[k]) for k in ('GAME', 'GFXAPI', 'DM_DISPLAY_NAME', 'DM_BUNDLE_ID', 'DM_TEAM_ID',
+              'DM_LANG', 'DM_COPY_ROMFS', 'DM_APP_VERSION', 'DM_SHOW_FPS', 'DM_PSO_GPUS') if k in env}
+    values['DM_GAMES_FIRST'] = '1'
+    paths = {'DM_GAMES_DIR': 'prepared_profile'}
+    for k in ('W', 'PATCHED', 'ROMFS', 'MSL_IOS', 'AOC', 'DM_XCODE_DERIVED_DATA', 'DM_ICON', 'DM_ENV_FILE', 'DM_ROOT', 'WORK'):
+        if not env.get(k): continue
+        p = Path(env[k]).resolve()
+        if not p.is_relative_to(work): raise BuildError(f'{k} is outside the portable work folder')
+        paths[k] = p.relative_to(work).as_posix()
+    context = {'schema': 1, 'game': g.id, 'values': values, 'paths': paths}
+    (work / 'package-context.json').write_text(json.dumps(context, sort_keys=True))
+    return context
+
+
 def main(args=None):
     args = args or parse_args([])
     PROG.mode = progress_mode(args.progress or PROGRESS)
@@ -2167,6 +2192,8 @@ def main(args=None):
     if platform not in ('ios', 'mac', 'mac-app'): raise BuildError(f'PLATFORM / --platform must be ios, mac or mac-app: {platform}')
     mac = platform in ('mac', 'mac-app')   # the Mac's shaders and host only: no iOS shaders, Xcode project or IPA (mac_run prints the command; mac-app packs a Mac app, mac_app)
     mac_pack = platform == 'mac-app'
+    if getattr(args, 'stop_after_shaders', False) and (mac or prepare_xcode):
+        raise BuildError('--stop-after-shaders requires a plain iOS build')
     if args.mac_sign and not mac_pack: raise BuildError('--mac-sign signs the Mac app: it needs --platform mac-app')
     if mac and prepare_xcode: raise BuildError(f'--prepare-xcode makes an iPhone project: it cannot be combined with --platform {platform}')
     if mac and not apple_silicon(): raise BuildError(f'--platform {platform} runs the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
@@ -2424,6 +2451,11 @@ def main(args=None):
     ipa_env['DM_PSO_GPUS'] = gpus
     if gfx == 'nvn': say(f'pipeline archive: {"none, the device builds the bases on its first start if it takes the Metal 4 path (--gpu g18p builds one)" if gpus == "none" else gpus + " (made on this Mac with metal-tt; --gpu none leaves it out)"}')
     if show_fps: say('frame-rate counter: on (DM_SHOW_FPS=0 in the app\'s Documents/env.txt turns it off)')
+    if getattr(args, 'stop_after_shaders', False):
+        if mac or prepare_xcode: raise BuildError('--stop-after-shaders requires a plain iOS build')
+        portable_package_context(work, g, ipa_env)
+        PROG.stage('iOS inputs ready'); PROG.end('completed preparation saved; IPA not built')
+        return
     if prepare_xcode:
         PROG.stage('prepare Xcode')
         run(['bash', repo / 'dm/ios/tools/build_ipa.sh', '--prepare-xcode'], logs / 'prepare_xcode.log', env=ipa_env)
