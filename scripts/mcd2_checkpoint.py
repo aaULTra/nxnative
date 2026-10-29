@@ -50,7 +50,7 @@ def checkpoint(work, raw_name):
     if name == "shader split":
         pkg = work / "shader/pkg"
         if (valid_key(work / "shader/pkg.key")
-                and pkg.is_dir() and next(pkg.rglob("*"), None) is not None):
+                and pkg.is_dir() and any(nonempty(p) for p in pkg.rglob("*"))):
             return "shader-package"
     if name in ("Mac shaders", "iOS shaders"):
         sh = work / "shader"
@@ -70,6 +70,7 @@ def checkpoint(work, raw_name):
                 return label
     if name == "Mac host":
         if (nonempty(work / "tools/dmhost")
+                and valid_key(work / "tools/dmhost.key")
                 and nonempty(work / "font/nintendo_ext.ttf")
                 and valid_key(work / "font/nintendo_ext.key")):
             return "mac-host"
