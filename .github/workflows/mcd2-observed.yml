@@ -4,10 +4,8 @@
 name: MCD2 observable recovery build
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/mcd2-observed.yml'
+  # Downloading several GB is deliberately owner-triggered only.
+  # Set the Google service account secret BEFORE starting a new run.
   workflow_dispatch:
 
 permissions:
@@ -19,7 +17,7 @@ concurrency:
 
 jobs:
   integrated:
-    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
     name: Visible shader progress, watchdog, Mac boot and IPA
     runs-on: xcode-27
     timeout-minutes: 150
@@ -28,6 +26,7 @@ jobs:
       HOMEBREW_NO_AUTO_UPDATE: '1'
       BASE_URL: ${{ secrets.MCD2_BASE_URL }}
       UPDATE_URL: ${{ secrets.MCD2_UPDATE_URL }}
+      MCD2_GDRIVE_SA_JSON: ${{ secrets.MCD2_GDRIVE_SA_JSON }}
       KEYS_TEXT: ${{ secrets.MCD2_PROD_KEYS }}
       DM_GAME: '0100A7C01B792000'
     steps:
@@ -46,7 +45,7 @@ jobs:
           set -euo pipefail
           test "$(uname -m)" = arm64
           xcodebuild -version
-          python -m pip install lz4 capstone fonttools gdown
+          python -m pip install lz4 capstone fonttools google-api-python-client google-auth
           command -v zstd || brew install zstd
           command -v xcodegen || brew install xcodegen
           command -v glslangValidator || brew install glslang
@@ -65,23 +64,16 @@ jobs:
           test -n "$BASE_URL" && test -n "$UPDATE_URL" && test -n "$KEYS_TEXT" || {
             echo "::error::MCD2_BASE_URL, MCD2_UPDATE_URL and MCD2_PROD_KEYS are required"; exit 1;
           }
+          test -n "${MCD2_GDRIVE_SA_JSON:-}" || {
+            echo "::error::Add GitHub Actions secret MCD2_GDRIVE_SA_JSON before running this build"; exit 1;
+          }
           umask 077
           mkdir -p "$RUNNER_TEMP/mcd2/game"
           printf '%s\n' "$KEYS_TEXT" > "$RUNNER_TEMP/mcd2/prod.keys"
-          download_nsp() {
-            local url="$1" out="$2" bytes="$3"
-            case "$url" in
-              https://drive.google.com/*) gdown --quiet --continue --retries 3 "$url" -O "$out";;
-              https://*) curl --proto '=https' --proto-redir '=https' --tlsv1.2 --fail --location --retry 3 --silent --show-error -o "$out" "$url";;
-              *) echo "::error::Invalid download URL scheme"; return 1;;
-            esac
-            test "$(stat -f '%z' "$out")" = "$bytes" || {
-              echo "::error::Downloaded NSP differs from expected verified size"; return 1;
-            }
-          }
           folder="$RUNNER_TEMP/mcd2/game"
-          download_nsp "$BASE_URL" "$folder/Minecraft Dungeons 2 [0100A7C01B792000][v0].nsp" 1662600274
-          download_nsp "$UPDATE_URL" "$folder/Minecraft Dungeons 2 [0100A7C01B792800][v65536].nsp" 2943659595
+          python -u scripts/mcd2_drive_api_download.py "$folder" \
+            --base-link "$BASE_URL" --update-link "$UPDATE_URL" \
+            --credentials-env MCD2_GDRIVE_SA_JSON
           python scripts/mcd2_preflight.py "$folder" --keys "$RUNNER_TEMP/mcd2/prod.keys"
       - name: Attempt Unreal shaders, Mac host boot and unsigned iOS package
         shell: bash

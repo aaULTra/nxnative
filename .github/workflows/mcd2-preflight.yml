@@ -11,6 +11,8 @@ on:
       - 'scripts/tests/test_mcd2_integrated.py'
       - 'scripts/tests/test_mcd2_observed.py'
       - 'scripts/mcd2_observed_build.py'
+      - 'scripts/mcd2_drive_api_download.py'
+      - 'scripts/tests/test_mcd2_drive_api_download.py'
       - '.github/workflows/mcd2-observed.yml'
       - 'scripts/mcd2_integrated_build.py'
       - '.github/workflows/mcd2-integrated.yml'
