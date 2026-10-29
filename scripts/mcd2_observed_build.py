@@ -15,6 +15,7 @@ import sys
 import time
 
 import mcd2_integrated_build as base
+import mcd2_checkpoint
 
 HEARTBEAT_SECONDS = 20
 STALL_LOG_SECONDS = 600
@@ -105,6 +106,10 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact):
         checkpoints = []
     current = "Starting build"
     safe_counts = ""
+    phase_start = start
+    last_progress_advance = start
+    last_count = None
+    last_notice = start
     last_log_change = start
     last_idle = None
     last_heartbeat = start
@@ -145,24 +150,40 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact):
                     if ev in ("stage", "step", "progress"):
                         raw_name = event.get("name")
                         if isinstance(raw_name, str):
-                            current = phase_name(raw_name)
+                            new_phase = phase_name(raw_name)
+                            if new_phase != current or ev == "stage":
+                                phase_start = now
+                                last_progress_advance = now
+                                last_count = None
+                                safe_counts = ""
+                            current = new_phase
                         if ev == "progress":
                             done, total = event.get("done"), event.get("total")
                             if (type(done) is int and type(total) is int
                                     and 0 <= done <= total <= 10**9 and total > 0):
                                 safe_counts = f"; {done:,}/{total:,} processed"
+                                if last_count is None or done > last_count:
+                                    last_progress_advance = now
+                                last_count = done
                         if ev == "stage":
-                            safe_counts = ""
                             print(f"[OBSERVED] phase: {current}", flush=True)
                     elif ev == "stage_end" and event.get("ok") is True:
-                        label = phase_name(str(event.get("name", "")))
-                        checkpoint = {"phase": label, "seconds": round(now - start)}
-                        checkpoints.append(checkpoint)
-                        # Metadata marker only. Underlying private build
-                        # outputs remain in this ephemeral runner, where
-                        # nxnative's own fingerprint cache reuses them.
-                        journal.write_text(json.dumps(checkpoints, indent=2))
-                        print(f"[CHECKPOINT] completed {label}", flush=True)
+                        raw = event.get("name", "")
+                        label = phase_name(str(raw))
+                        # Never confuse a progress message with a resumable
+                        # checkpoint. Output + successful fingerprint marker
+                        # must both exist. The builder revalidates on reuse.
+                        verified = (mcd2_checkpoint.checkpoint(
+                            redact / f"{base.GAME}_build", raw)
+                            if isinstance(raw, str) else None)
+                        if verified:
+                            checkpoint = {"phase": label, "verified_output": verified,
+                                          "seconds": round(now - start)}
+                            checkpoints.append(checkpoint)
+                            journal.write_text(json.dumps(checkpoints, indent=2))
+                            print(f"[CHECKPOINT] verified {verified}", flush=True)
+                        else:
+                            print(f"[STAGE] completed {label}; no reusable checkpoint verified", flush=True)
             if now - last_heartbeat >= HEARTBEAT_SECONDS:
                 usage = descendants_cpu(proc.pid)
                 active = usage is not None and usage >= 1.0
@@ -171,10 +192,23 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact):
                 elapsed = round(now - start)
                 status = "working" if active else "CPU low/unknown"
                 print(f"[HEARTBEAT] {name}: {current}{safe_counts}; {elapsed}s; "
-                      f"log idle {round(now - last_log_change)}s; {status}"
+                      f"phase {round(now - phase_start)}s; "
+                      f"log idle {round(now - last_log_change)}s; "
+                      f"counter idle {round(now - last_progress_advance)}s; {status}"
                       + (f" ({usage:.1f}% CPU)" if usage is not None else ""),
                       flush=True)
                 last_heartbeat = now
+            if (now - last_log_change >= 180 and now - last_notice >= 180):
+                print(f"[NO-PROGRESS] No build-log activity for "
+                      f"{round(now - last_log_change)}s in {current}; "
+                      "checking CPU and waiting for watchdog (this may still be compilation)", flush=True)
+                last_notice = now
+            if (last_count is not None and now - last_progress_advance >= 300
+                    and now - last_notice >= 180):
+                print(f"[NO-PROGRESS] Numeric counter unchanged for "
+                      f"{round(now - last_progress_advance)}s in {current}; "
+                      "CPU activity alone does not prove progress", flush=True)
+                last_notice = now
             if proc.poll() is not None:
                 break
             if now - start >= timeout:
