@@ -1,9 +1,11 @@
 # One real-game pipeline: merged NSP extraction, Unreal shader decoding,
 # iOS Metal translation and IPA. Deliver into a dedicated owner-owned Drive
 # file; public artifacts remain compact text only.
-name: MCD2 observable recovery build
+name: MCD2 owner-requested build PR22
 
 on:
+  # One-off launch explicitly requested by the repository owner in Codex.
+  create:
   # Downloading several GB is deliberately owner-triggered only.
   # Set the Google service account secret BEFORE starting a new run.
   workflow_dispatch:
@@ -23,7 +25,7 @@ concurrency:
 
 jobs:
   integrated:
-    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'create' && github.event.ref_type == 'branch' && github.event.ref == 'codex/mcd2-run-pr22' }}
     name: iOS shaders, verified IPA and Drive delivery
     runs-on: xcode-27
     timeout-minutes: 240
@@ -35,11 +37,12 @@ jobs:
       MCD2_GDRIVE_SA_JSON: ${{ secrets.MCD2_GDRIVE_SA_JSON }}
       KEYS_TEXT: ${{ secrets.MCD2_PROD_KEYS }}
       DM_GAME: '0100A7C01B792000'
-      MCD2_OUTPUT_FILE: ${{ inputs.output_file }}
+      MCD2_OUTPUT_FILE: '1lu_Myzes9nPWvIR5Mb5Et7QJp7Kw1G6b'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: '6ec8239d963386d39c9e74a8de686471c9c28b38'
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.14'
