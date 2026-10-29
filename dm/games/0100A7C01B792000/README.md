@@ -59,6 +59,24 @@ truncating them, and with opcode-verified patches of this game's exact
 build ID. Even an increased resident-memory allowance cannot make the
 original giant virtual reservations work.
 
+## SDK 20.5.15 compact node-area patch
+
+The 2026-10-29 private diagnostic (Actions run `40793486912`) found
+exactly one pair of SDK MOVZ instructions at `sdk+0x145cbc` and
+`sdk+0x145d28`. Both have the same original bytes, offsets, and 0x6c
+separation as the tested SDK 20.5.17 branch used by FINAL FANTASY
+RESONANCE. A **build-ID-specific pair of cuts** has therefore been added
+to `dm/tools/sdk_patches.py`: the node-area limit and its occupied
+region bookkeeping both change from approximately 1 GiB to 62 MiB.
+
+The NSO rewriter asserts the original instruction bytes and aborts on
+any mismatch. The private Mac rewriter workflow verifies that precisely
+two SDK cuts are actually emitted before reporting success. **This is a
+source and rewrite compatibility fix, not a successful boot.** The game
+still requires engine-specific FMallocBinned3 interception, correct
+`nninitStartup` region handling and shader translation. Do not enable
+Extended Virtual Addressing or enlarge the 5 GiB guest reservation.
+
 ## Bounded memory configuration: a hypothesis, not a patch
 
 The survey's auto-guess reserves roughly 64 GiB of guest address space, because modern Unreal's `nninitStartup` asks for a 62 GiB address region and FMallocBinned3 is expected to reserve ~37 GiB of it. Merely changing `mem_reserve` in `game.tsv` does **not** fix either request. A boot attempt with the current profile could still fail during engine memory setup.
@@ -71,7 +89,7 @@ The game's exact `main` build is not the build from any other profile. **Do not 
 
 1. **Assets:** done. The merged RomFS manifest verified `Dungeons/Content/Paks/Dungeons-Switch.ucas` and its matching `.utoc`; the profile now has this exact marker. Next extract the shader archive layout privately.
 2. **Code bring-up:** inspect and bound Unreal's 62 GiB address-region request, identify whether `-SwitchVirtualAddressSpaceSize=4064` works, then identify FMallocBinned3's allocator-constructor site and vtable layout for this exact build. Verify instruction bytes before registering cuts or an observation gate.
-3. **SDK:** inspect `sdk` 20.5.15's node-area reservation and virtual-address alignment. Existing SDK 20.5.17 work is a reference, not proof the offsets match.
+3. **SDK:** the original node-area instructions and offsets match SDK 20.5.17 and now have narrowly scoped, byte-asserted cuts in this exact SDK build. The changes still require validation through the Mac rewrite and subsequent real boot; alignment and other SDK behaviour remain unverified.
 4. **Shader libraries:** inspect `.pak` and both IoStore `.utoc`/`.ucas` pairs. The survey found Unreal 5.6.1 and NVN, but did not extract or count shader archives. Existing `uepak.py` supports IoStore and may require Oodle decoding through the Mac host.
 5. **Mac bring-up:** rewrite the modules, run the Mac host with `DM_SVC=1 DM_WATCH=20` and keep the first crash, `[RED]` lines and memory reservation trace. Mac compilation alone cannot verify on-device graphics.
 6. **iPad testing:** only after the host reaches frames should an unsigned IPA be prepared and signed for the owner's device. Test controls, audio, shaders, memory headroom and heat. Do not claim a 60 fps target before measured gameplay.

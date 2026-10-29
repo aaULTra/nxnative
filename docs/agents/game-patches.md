@@ -610,32 +610,35 @@ Cuts of Nintendo SDK `sdk` builds ([sdk_patches.py](../../dm/tools/sdk_patches.p
   - cut `+0x12e0f0`: AddressRegionManager constructor: node area limit mov w8,#0x3fe00000 → mov w8,#0x3e00000
   - cut `+0x12e184`: AddressRegionManager constructor: length of the node area registered as an occupied region mov w9,#0x3fe00000 → mov w9,#0x3e00000
   - cut `+0x12e2e0`: AllocateAddressRegion: alignment of regions of 1 GB and more mov w10,#0x40000000 → mov w10,#0x2000000 (32 MB, as from 32 MB up)
-- **sdk** `0023a1b0…` ([sdk_patches.py:181](../../dm/tools/sdk_patches.py#L181)): FINAL FANTASY RESONANCE (Asian release) 1.0.1, FINAL FANTASY RESONANCE 1.0.1, STEINS;GATE RE:BOOT 1.0.3
+- **sdk** `19003051…` ([sdk_patches.py:188](../../dm/tools/sdk_patches.py#L188)): Minecraft Dungeons II 1.1.1.0
+  - cut `+0x145cbc`: AddressRegionManager node area limit: 1 GiB to 62 MiB (MCD2 SDK 20.5.15)
+  - cut `+0x145d28`: AddressRegionManager occupied node area: 1 GiB to 62 MiB (MCD2 SDK 20.5.15)
+- **sdk** `0023a1b0…` ([sdk_patches.py:194](../../dm/tools/sdk_patches.py#L194)): FINAL FANTASY RESONANCE (Asian release) 1.0.1, FINAL FANTASY RESONANCE 1.0.1, STEINS;GATE RE:BOOT 1.0.3
   - cut `+0x145cbc`: AddressRegionManager constructor: node area limit mov w8,#0x3fe00000 → mov w8,#0x3e00000
   - cut `+0x145d28`: AddressRegionManager constructor: length of the node area registered as an occupied region mov w9,#0x3fe00000 → mov w9,#0x3e00000
-- **sdk** `145dde94…` ([sdk_patches.py:186](../../dm/tools/sdk_patches.py#L186)): DRAGON QUEST VII Reimagined 1.2.0
+- **sdk** `145dde94…` ([sdk_patches.py:199](../../dm/tools/sdk_patches.py#L199)): DRAGON QUEST VII Reimagined 1.2.0
   - cut `+0x1423fc`: AddressRegionManager constructor: node area limit mov w8,#0x3fe00000 → mov w8,#0x3e00000
   - cut `+0x142468`: AddressRegionManager constructor: length of the node area registered as an occupied region mov w9,#0x3fe00000 → mov w9,#0x3e00000
-- **sdk** `fcf93a41…` ([sdk_patches.py:195](../../dm/tools/sdk_patches.py#L195)): DRAGON QUEST XI S: Echoes of an Elusive Age – Definitive Edition 1.0.4, Luigi's Mansion 3 1.4.0, Pokémon Shield 1.3.2, Pokémon Sword 1.3.2, Raging Loop 1.0.0, Super Mario Odyssey 1.4.1
+- **sdk** `fcf93a41…` ([sdk_patches.py:208](../../dm/tools/sdk_patches.py#L208)): DRAGON QUEST XI S: Echoes of an Elusive Age – Definitive Edition 1.0.4, Luigi's Mansion 3 1.4.0, Pokémon Shield 1.3.2, Pokémon Sword 1.3.2, Raging Loop 1.0.0, Super Mario Odyssey 1.4.1
   - cut `+0x32c460`: AddressRegionManager constructor: node area limit orr w9,wzr,#0x3fe00000 → mov w9,#0x3e00000
   - cut `+0x32c500`: AddressRegionManager constructor: length of the node area registered as an occupied region orr w9,wzr,#0x3fe00000 → mov w9,#0x3e00000
   - cut `+0x32c66c`: AllocateAddressRegion: alignment of regions of 1 GB and more orr w10,wzr,#0x40000000 → mov w10,#0x2000000 (32 MB, as from 32 MB up)
-- **sdk** `5fd4f531…` ([sdk_patches.py:204](../../dm/tools/sdk_patches.py#L204)): Catherine: Full Body 1.0.1a, FINAL FANTASY CRYSTAL CHRONICLES Remastered Edition 1.0.3, Super Smash Bros. Ultimate 13.0.5
+- **sdk** `5fd4f531…` ([sdk_patches.py:217](../../dm/tools/sdk_patches.py#L217)): Catherine: Full Body 1.0.1a, FINAL FANTASY CRYSTAL CHRONICLES Remastered Edition 1.0.3, Super Smash Bros. Ultimate 13.0.5
   - cut `+0x336b50`: AddressRegionManager constructor: node area limit orr w9,wzr,#0x3fe00000 → mov w9,#0x3e00000
   - cut `+0x336bf0`: AddressRegionManager constructor: length of the node area registered as an occupied region orr w9,wzr,#0x3fe00000 → mov w9,#0x3e00000
   - cut `+0x336d5c`: AllocateAddressRegion: alignment of regions of 1 GB and more orr w10,wzr,#0x40000000 → mov w10,#0x2000000 (32 MB, as from 32 MB up)
-- **sdk** `d9add76f…` ([sdk_patches.py:214](../../dm/tools/sdk_patches.py#L214)): Advance Wars 1+2: Re-Boot Camp 1.0.0, The Great Ace Attorney Chronicles 1.0.0
+- **sdk** `d9add76f…` ([sdk_patches.py:227](../../dm/tools/sdk_patches.py#L227)): Advance Wars 1+2: Re-Boot Camp 1.0.0, The Great Ace Attorney Chronicles 1.0.0
   - cut `+0x340ea0`: AddressRegionManager constructor: node area limit orr w8,wzr,#0x3fe00000 → mov w8,#0x3e00000
   - cut `+0x340f3c`: AddressRegionManager constructor: length of the node area registered as an occupied region orr w9,wzr,#0x3fe00000 → mov w9,#0x3e00000
   - cut `+0x34109c`: AllocateAddressRegion: alignment of regions of 1 GB and more orr w10,wzr,#0x40000000 → mov w10,#0x2000000 (32 MB, as from 32 MB up)
-- **sdk** `30a1e87b…` ([sdk_patches.py:222](../../dm/tools/sdk_patches.py#L222)): Pikmin 4 1.1.1
+- **sdk** `30a1e87b…` ([sdk_patches.py:235](../../dm/tools/sdk_patches.py#L235)): Pikmin 4 1.1.1
   - cut `+0x340ea0`: AddressRegionManager constructor: node area limit orr w8,wzr,#0x3fe00000 → mov w8,#0x3e00000
   - cut `+0x340f3c`: AddressRegionManager constructor: length of the node area registered as an occupied region orr w9,wzr,#0x3fe00000 → mov w9,#0x3e00000
   - cut `+0x34109c`: AllocateAddressRegion: alignment of regions of 1 GB and more orr w10,wzr,#0x40000000 → mov w10,#0x2000000 (32 MB, as from 32 MB up)
-- **sdk** `7bba185a…` ([sdk_patches.py:230](../../dm/tools/sdk_patches.py#L230)): OCTOPATH TRAVELER 0 1.0.5
+- **sdk** `7bba185a…` ([sdk_patches.py:243](../../dm/tools/sdk_patches.py#L243)): OCTOPATH TRAVELER 0 1.0.5
   - cut `+0x1423fc`: AddressRegionManager constructor: node area limit mov w8,#0x3fe00000 → mov w8,#0x3e00000
   - cut `+0x142468`: AddressRegionManager constructor: length of the node area registered as an occupied region mov w9,#0x3fe00000 → mov w9,#0x3e00000
-- **sdk** `5bcf525f…` ([sdk_patches.py:237](../../dm/tools/sdk_patches.py#L237)): OCTOPATH TRAVELER II 1.1.1
+- **sdk** `5bcf525f…` ([sdk_patches.py:250](../../dm/tools/sdk_patches.py#L250)): OCTOPATH TRAVELER II 1.1.1
   - cut `+0x346190`: AddressRegionManager constructor: node area limit mov w8,#0x3fe00000 → mov w8,#0x3e00000
   - cut `+0x34622c`: AddressRegionManager constructor: length of the node area registered as an occupied region mov w9,#0x3fe00000 → mov w9,#0x3e00000
 

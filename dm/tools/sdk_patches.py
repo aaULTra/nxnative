@@ -176,6 +176,19 @@ CUTS = {
     (0x12e184, '09fca752', '097ca052', 'AddressRegionManager constructor: length of the node area registered as an occupied region mov w9,#0x3fe00000 → mov w9,#0x3e00000'),
     (0x12e2e0, '0a00a852', '0a40a052', 'AllocateAddressRegion: alignment of regions of 1 GB and more mov w10,#0x40000000 → mov w10,#0x2000000 (32 MB, as from 32 MB up)'),
   ],
+  # Minecraft Dungeons II 1.1.1.0 (v65536), SDK 20.5.15:
+  # The private NSP survey (Actions run 40793486912) verified this exact
+  # sdk build ID and found exactly one pair of original MOVZ instructions,
+  # at the SAME offsets and with the SAME 0x6c separation as the neighbouring
+  # SDK 20.5.17 build below. Both modifications are gated by the rewriter's
+  # original-byte assertions, and only apply to this exact SDK build.
+  # AddressRegionManager's 1 GiB node area is restricted to 62 MiB to make
+  # room for Unreal's separate capped 4064 MiB region in a 4.375 GiB alias
+  # partition. This is NOT a fix for UE's 37 GiB FMallocBinned3 pools.
+  '190030518b5d64e5d87b84bc54661af9': [
+    (0x145cbc, '08fca752', '087ca052', 'AddressRegionManager node area limit: 1 GiB to 62 MiB (MCD2 SDK 20.5.15)'),
+    (0x145d28, '09fca752', '097ca052', 'AddressRegionManager occupied node area: 1 GiB to 62 MiB (MCD2 SDK 20.5.15)'),
+  ],
   # FINAL FANTASY RESONANCE 1.0.1 (v65536) sdk (SDK 20.5.17, the build STEINS;GATE RE:BOOT runs, which has no virtual address memory): the AddressRegionManager node area cut, as on the other
   # Unreal games' SDKs. The constructor is at sdk+0x145cac: +0x145cbc sets the node area limit, +0x145d28 registers it as an occupied region
   '0023a1b06130cd795f7bc4613772af0a': [
