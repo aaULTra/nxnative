@@ -8,7 +8,6 @@ The public repository never receives game binaries, keys, shaders or IPA.
 import argparse
 import json
 import os
-from pathlib import Path
 import re
 import signal
 import subprocess
