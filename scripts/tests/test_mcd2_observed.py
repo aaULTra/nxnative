@@ -56,7 +56,7 @@ class TestMcd2Monitor(unittest.TestCase):
                         15, {}, folder / "private.log", folder, folder)
             self.assertEqual(result["code"], 124)
             self.assertIn("[WATCHDOG]", captured.getvalue())
-            self.assertIn("low CPU", str(result["error"]))
+            self.assertIn("Low CPU", str(result["error"]))
 
     def test_guard_remains_enforced_for_observed_driver(self):
         repo = Path(__file__).resolve().parents[2]
