@@ -1,0 +1,64 @@
+name: MCD2 chunked transfer diagnosis
+on:
+  create:
+permissions:
+  contents: read
+jobs:
+  probe:
+    if: ${{ github.event_name == 'create' && github.event.ref_type == 'branch' && github.event.ref == 'codex/mcd2-storage-probe-2' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      MCD2_GDRIVE_SA_JSON: ${{ secrets.MCD2_GDRIVE_SA_JSON }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: 'a916e7344b21b677d4c47c020141c79a13c1132c'
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.14'
+      - run: python -m pip install google-api-python-client google-auth
+      - name: Probe resumable binary updates with safe diagnostic fields
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, io, json, pathlib, re, sys
+          sys.path.insert(0, 'scripts')
+          from mcd2_cloud import DriveStore
+          from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
+          store = DriveStore()
+          target = '1-9w7D8kBDJyVnQmNp5LjD0vC6oHOJjon'
+          data = b'X' * (40 * 1024**2 + 1)
+          path = pathlib.Path('/tmp/mcd2-probe.bin')
+          path.write_bytes(data)
+          result = {}
+          for mode in ('current', 'metadata_body'):
+              try:
+                  if mode == 'current':
+                      store.upload(target, path)
+                  elif mode == 'metadata_body':
+                      req = store.drive.files().update(fileId=target, supportsAllDrives=True, body={},
+                          media_body=MediaFileUpload(str(path), mimetype='application/octet-stream', chunksize=32*1024**2, resumable=True),
+                          fields='id')
+                      value = None
+                      while value is None:
+                          _, value = req.next_chunk(num_retries=1)
+                  else:
+                      store.drive.files().update(fileId=target, body={},
+                          media_body=MediaIoBaseUpload(io.BytesIO(data), mimetype='application/octet-stream'),
+                          fields='id').execute(num_retries=1)
+                  meta = store.drive.files().get(fileId=target, fields='size,md5Checksum').execute()
+                  ok = int(meta.get('size', -1)) == len(data) and meta.get('md5Checksum') == hashlib.md5(data, usedforsecurity=False).hexdigest()
+                  result[mode] = {'ok':ok}
+              except Exception as exc:
+                  status = getattr(getattr(exc, 'resp', None), 'status', None)
+                  reasons = []
+                  try:
+                      error = json.loads(getattr(exc, 'content', b'{}')).get('error', {})
+                      reasons = [e.get('reason','') for e in error.get('errors',[]) if re.fullmatch(r'[A-Za-z_]{1,64}', e.get('reason',''))]
+                  except Exception:
+                      pass
+                  result[mode] = {'ok':False,'type':type(exc).__name__,'http_status':status,'reasons':reasons}
+          print('[TRANSFER PROBE] '+json.dumps(result, sort_keys=True))
+          PY
