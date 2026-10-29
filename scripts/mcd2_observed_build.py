@@ -88,7 +88,7 @@ def stop_group(proc):
         proc.wait(timeout=5)
 
 
-def stage_observed(name, cmd, timeout, env, log, repo, redact):
+def run_stage_once(name, cmd, timeout, env, log, repo, redact):
     # Never stream the child process's raw logs to a public Actions job:
     # a tool may include decrypted content or paths in its diagnostics.
     # Stream ONLY whitelisted stage descriptions and numeric progress.
@@ -100,7 +100,10 @@ def stage_observed(name, cmd, timeout, env, log, repo, redact):
     start = time.monotonic()
     log.parent.mkdir(parents=True, exist_ok=True)
     journal = redact / "mcd2-progress-checkpoints.json"
-    checkpoints = []
+    try:
+        checkpoints = json.loads(journal.read_text()) if journal.exists() else []
+    except (OSError, ValueError):
+        checkpoints = []
     current = "Starting build"
     last_log_change = start
     last_idle = None
@@ -115,7 +118,7 @@ def stage_observed(name, cmd, timeout, env, log, repo, redact):
         )
         code = None
         stall = False
-        while proc.poll() is None:
+        while True:
             now = time.monotonic()
             try:
                 with log.open("rb") as reader:
@@ -157,7 +160,7 @@ def stage_observed(name, cmd, timeout, env, log, repo, redact):
             if now - last_heartbeat >= HEARTBEAT_SECONDS:
                 usage = descendants_cpu(proc.pid)
                 active = usage is not None and usage >= 1.0
-                idle = None if active else (last_idle or now)
+                idle = None if usage is None or active else (last_idle or now)
                 last_idle = idle
                 elapsed = round(now - start)
                 status = "working" if active else "CPU low/unknown"
@@ -166,6 +169,8 @@ def stage_observed(name, cmd, timeout, env, log, repo, redact):
                       + (f" ({usage:.1f}% CPU)" if usage is not None else ""),
                       flush=True)
                 last_heartbeat = now
+            if proc.poll() is not None:
+                break
             if now - start >= timeout:
                 code = 124
                 print(f"[WATCHDOG] stage time limit reached for {name}", flush=True)
@@ -193,6 +198,19 @@ def stage_observed(name, cmd, timeout, env, log, repo, redact):
     print(f"[OBSERVED] finished {name}; exit={code}; elapsed={sec}s; "
           f"{len(checkpoints)} completed local checkpoints", flush=True)
     return {"name": name, "code": code, "seconds": sec, "error": error}
+
+
+
+def stage_observed(name, cmd, timeout, env, log, repo, redact):
+    first = run_stage_once(name, cmd, timeout, env, log, repo, redact)
+    if first["code"] == 124 and name == "mac-shaders-and-host":
+        # Try once more on the SAME runner, where nxnative's fingerprinted
+        # extracted modules and finished shader outputs are still available.
+        # This is not recovery across different GitHub-hosted machines.
+        print("[RECOVERY] Retrying Mac stage once using local completed outputs; "
+              "second attempt capped at 15 minutes", flush=True)
+        return run_stage_once(name, cmd, min(900, timeout), env, log, repo, redact)
+    return first
 
 
 def main():
