@@ -2299,7 +2299,7 @@ def main(args=None):
                   if not g.table(n).is_file()]
         if absent:
             pdir = work / 'profile'
-            derive_profile(g, pdir / g.id, pkg_ver, game, g.words('modules'), app, shader_only=True)
+            derive_profile(g, pdir / g.id, pkg_ver, dirs[pkg_ver], g.words('modules'), app, shader_only=True)
             env['DM_GAMES_DIR'] = os.environ['DM_GAMES_DIR'] = os.pathsep.join(
                 [str(pdir)] + [d for d in env.get('DM_GAMES_DIR', '').split(os.pathsep)
                               if d and d != str(pdir)])
