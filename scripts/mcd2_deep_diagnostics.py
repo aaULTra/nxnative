@@ -127,6 +127,62 @@ def segment_for_address(module, address):
 
 
 
+
+EXPECTED_MCD2_MAIN_BID = "9e9d887d59f7f7db176b35e3379258b9"
+MCD2_UE_STARTUP_CALL = 0x143B0
+MCD2_UE_STARTUP_TARGET = 0xB0560
+
+
+def candidate_constructor_refs(module, call_site=MCD2_UE_STARTUP_CALL,
+                               expected_target=MCD2_UE_STARTUP_TARGET):
+    """Report bounded cross-references near one verified same-build BL.
+
+    Extracted NSO memory is examined privately; return addresses/register
+    identifiers only, never an executable image or disassembled instructions.
+    This is NOT a proof the target is an FMallocBinned3 constructor.
+    """
+    code = memoryview(module.image)[:module.text_end]
+    if not (0 <= call_site < len(code) - 4):
+        return None
+    matches = near_direct_calls(code, call_site, radius=4, limit=1)
+    if (call_site, expected_target) not in matches:
+        return None
+
+    caller = nearby_adrp_add_refs(code, call_site - 32, radius=128, limit=64)
+    # Keep only addresses set up before the actual call, and only locations
+    # that could hold global allocator state. There is no data-flow proof.
+    before = []
+    for at, add_at, target in caller:
+        if add_at >= call_site:
+            continue
+        kind = segment_for_address(module, target)
+        if kind not in ("ro", "data", "bss"):
+            continue
+        source_reg = struct.unpack_from("<I", code, at)[0] & 31
+        dest_reg = struct.unpack_from("<I", code, add_at)[0] & 31
+        before.append((at, add_at, source_reg, dest_reg, target, kind))
+    before.sort(key=lambda item: (call_site - item[1], item[0]))
+
+    # Constructor candidate references: inspect a bounded first 768 bytes.
+    callee = nearby_adrp_add_refs(
+        code, expected_target + 0x180, radius=0x180, limit=128
+    )
+    refs = []
+    for at, add_at, target in callee:
+        kind = segment_for_address(module, target)
+        if kind not in ("ro", "data", "bss"):
+            continue
+        from_reg = struct.unpack_from("<I", code, at)[0] & 31
+        to_reg = struct.unpack_from("<I", code, add_at)[0] & 31
+        refs.append((at, add_at, from_reg, to_reg, target, kind))
+    refs.sort(key=lambda item: (item[0], item[1]))
+    calls = near_direct_calls(
+        code, expected_target + 0x180, radius=0x180, limit=24
+    )
+    return before[:16], refs[:30], sorted(calls)[:18]
+
+
+
 # Exact original ARM64 MOVZ encodings used by SDK 20.5.17's address manager.
 # These encode mov w8,#0x3fe00000 and mov w9,#0x3fe00000.
 # The two sites are 0x6c bytes apart in that SDK. This does NOT make
@@ -162,6 +218,9 @@ def report(survey_dir):
         raise FileNotFoundError("missing survey ExeFS/main")
     module = nso.load(main_file.read_bytes(), str(main_file))
     image = bytes(module.image)
+    main_bid = module.build_id[:16].hex()
+    if main_bid != EXPECTED_MCD2_MAIN_BID:
+        raise ValueError(f"unexpected MCD2 main build {main_bid}; refusing to infer allocator sites")
     code = memoryview(image)[:module.segments[0][1]]
     versions = unreal_versions(image)
     possibles = possible_62g_immediates(code)
@@ -211,6 +270,36 @@ def report(survey_dir):
             out.append("- More candidates omitted.")
     else:
         out.append("No match to this one instruction encoding. Other forms remain possible.")
+    out += ["", "## UE5.6 allocator startup cross-reference probe", "",
+            f"- Exact main build ID checked: {main_bid}",
+            f"- Hypothetical caller: main+0x{MCD2_UE_STARTUP_CALL:x}",
+            f"- Observed direct-call target: main+0x{MCD2_UE_STARTUP_TARGET:x}",
+            "This may be an Unreal allocator constructor but is NOT proven. No patch is applied.", ""]
+    probe = candidate_constructor_refs(module)
+    if probe is None:
+        out.append("The exact caller/target relation is absent; stop investigating this candidate.")
+    else:
+        before, references, calls = probe
+        out.append("### Global references before the candidate call (closest first)")
+        for at, follow, source_reg, dest_reg, target, kind in before:
+            out.append(f"- main+0x{at:x}/+0x{follow:x}: x{source_reg}->x{dest_reg}, "
+                       f"global 0x{target:x} ({kind}, possible state only)")
+        if not before:
+            out.append("No relevant global references detected in the bounded window.")
+        out += ["", "### Early target-function global references", ""]
+        for at, follow, source_reg, dest_reg, target, kind in references:
+            out.append(f"- main+0x{at:x}/+0x{follow:x}: x{source_reg}->x{dest_reg}, "
+                       f"global 0x{target:x} ({kind})")
+        if not references:
+            out.append("No global references in the first 768 bytes.")
+        out += ["", "### Early target-function direct calls", ""]
+        for at, dest in calls:
+            out.append(f"- main+0x{at:x} -> main+0x{dest:x} (unverified purpose)")
+        if not calls:
+            out.append("No direct calls in the first 768 bytes.")
+    out.append("Next: verify the FMallocBinned3 object, its vtable and the constructor "
+               "with offline function analysis before any host-heap interception.")
+
     out += ["", "## SDK 20.5.15 address-region node-area candidates", "",
             "Signature: two original SDK 20.5.17 MOVZ forms for the ~1 GiB node area;",
             "the second occupied-length instruction follows the limit instruction.",
