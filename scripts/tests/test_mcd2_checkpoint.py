@@ -35,6 +35,18 @@ class TestVerifiedCheckpoint(unittest.TestCase):
             (libdir / "_b_build.json").write_text('{"complete":true}')
             self.assertEqual(cp.checkpoint(work, "Mac shaders"), "mac-metal-libraries")
 
+    def test_mac_host_requires_its_own_fingerprint_not_just_font(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td)
+            (work / "tools").mkdir()
+            (work / "font").mkdir()
+            (work / "tools/dmhost").write_bytes(b"host")
+            (work / "font/nintendo_ext.ttf").write_bytes(b"font")
+            (work / "font/nintendo_ext.key").write_text("b" * 64 + "\n")
+            self.assertIsNone(cp.checkpoint(work, "Mac host"))
+            (work / "tools/dmhost.key").write_text("c" * 64 + "\n")
+            self.assertEqual(cp.checkpoint(work, "Mac host"), "mac-host")
+
     def test_unstamped_stage_and_unknown_name_not_reusable(self):
         with tempfile.TemporaryDirectory() as td:
             work = Path(td)
