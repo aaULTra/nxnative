@@ -82,6 +82,34 @@ def near_direct_calls(code, site, radius=96, limit=8):
     return sorted(calls, key=lambda call: (abs(call[0] - site), call[0]))[:limit]
 
 
+
+# Exact original ARM64 MOVZ encodings used by SDK 20.5.17's address manager.
+# These encode mov w8,#0x3fe00000 and mov w9,#0x3fe00000.
+# The two sites are 0x6c bytes apart in that SDK. This does NOT make
+# the corresponding sites safe to patch in SDK 20.5.15.
+SDK_NODE_LIMIT_MOV = 0x52A7FC08
+SDK_NODE_OCCUPIED_MOV = 0x52A7FC09
+EXPECTED_MCD2_SDK_BID = "190030518b5d64e5d87b84bc54661af9"
+
+
+def sdk_node_area_sites(code, min_gap=0x40, max_gap=0xC0):
+    """Find a limit/occupied MOVZ pair in the *exact* SDK code.
+
+    Report offsets and distances only. Byte equality and adjacency are
+    preliminary clues, not proof of AddressRegionManager semantics.
+    """
+    a, b = [], []
+    for offset in range(0, len(code) - 3, 4):
+        word = struct.unpack_from("<I", code, offset)[0]
+        if word == SDK_NODE_LIMIT_MOV:
+            a.append(offset)
+        elif word == SDK_NODE_OCCUPIED_MOV:
+            b.append(offset)
+    pairs = [(start, end, end - start) for start in a for end in b
+             if min_gap <= end - start <= max_gap]
+    return sorted(pairs, key=lambda x: (x[0], x[1])), len(a), len(b)
+
+
 def report(survey_dir):
     ext = Path(survey_dir) / "extract"
     rows = manifest_rows(ext / "romfs_manifest.tsv")
@@ -93,6 +121,15 @@ def report(survey_dir):
     code = memoryview(image)[:module.segments[0][1]]
     versions = unreal_versions(image)
     possibles = possible_62g_immediates(code)
+    sdk_file = ext / "ExeFS" / "sdk"
+    if not sdk_file.is_file():
+        raise FileNotFoundError("missing survey ExeFS/sdk")
+    sdk = nso.load(sdk_file.read_bytes(), str(sdk_file))
+    sdk_bid = sdk.build_id[:16].hex()
+    if sdk_bid != EXPECTED_MCD2_SDK_BID:
+        raise ValueError(f"unexpected MCD2 sdk build ID {sdk_bid}; refusing to infer patch sites")
+    pairs, node_limit_count, node_occupied_count = sdk_node_area_sites(
+        memoryview(sdk.image)[:sdk.text_end])
     groups = io_container_pairs(rows)
     assets = [(p, n) for p, n in rows if p.lower().endswith((".pak", ".utoc", ".ucas"))]
     clean = lambda p: p.replace("\r", "").replace("\n", "_").replace("|", "_")
@@ -121,6 +158,19 @@ def report(survey_dir):
             out.append("- More candidates omitted.")
     else:
         out.append("No match to this one instruction encoding. Other forms remain possible.")
+    out += ["", "## SDK 20.5.15 address-region node-area candidates", "",
+            "Signature: two original SDK 20.5.17 MOVZ forms for the ~1 GiB node area;",
+            "the second occupied-length instruction follows the limit instruction.",
+            f"- Exact sdk build ID checked: {sdk_bid}",
+            f"- Raw instruction matches: limit={node_limit_count}, occupied={node_occupied_count}",
+            f"- Pairs with 0x40..0xC0-byte separation: {len(pairs)}", ""]
+    for start, end, gap in pairs[:30]:
+        out.append(f"- sdk+0x{start:x} -> sdk+0x{end:x} (gap 0x{gap:x}; candidate only)")
+    if not pairs:
+        out.append("No matching pair; do not copy other SDKs' hard-coded offsets.")
+    if len(pairs) > 30:
+        out.append("- Additional pairs omitted pending further validation.")
+    out.append("No SDK cut is proposed until the functions and original bytes are verified.")
     out += ["", "## IoStore archive pairs", ""]
     for path, size, toc in groups:
         out.append(f"- {clean(path)} ({size:,} bytes); TOC: {clean(toc) if toc else 'MISSING'}")
@@ -133,7 +183,7 @@ def report(survey_dir):
             "1. Use the observed largest .ucas as the game's exact RomFS marker.",
             "2. Disassemble the main-build candidates and validate original instruction bytes.",
             "3. Identify the FMallocBinned3 constructor and vtable layout; do not copy another game's offsets.",
-            "4. Verify this SDK 20.5.15 build's address region manager before sdk patching.",
+            "4. Inspect SDK node-area candidates in their function context before any build-specific cut.",
             "5. Compile and boot using a Mac and test on iPad before any playability claim."]
     return "\n".join(out) + "\n"
 
