@@ -83,6 +83,50 @@ def near_direct_calls(code, site, radius=96, limit=8):
 
 
 
+
+def nearby_adrp_add_refs(code, site, radius=96, limit=24):
+    """Infer PC-relative addresses, not function semantics or patch points.
+
+    AArch64 ADRP Xn followed by ADD Xm,Xn,#imm (up to five instructions).
+    The output only contains offsets, target address and registers; no
+    guest code bytes. Pairing is exploratory, not validated data flow.
+    """
+    refs = []
+    start = max(0, site - radius) & ~3
+    stop = min(len(code) - 3, site + radius)
+    for at in range(start, stop, 4):
+        word = struct.unpack_from("<I", code, at)[0]
+        if word & 0x9F000000 != 0x90000000:
+            continue
+        reg = word & 31
+        imm = (((word >> 5) & 0x7FFFF) << 2) | ((word >> 29) & 3)
+        if imm & (1 << 20):
+            imm -= 1 << 21
+        page = (at & ~0xFFF) + (imm << 12)
+        for follow in range(at + 4, min(at + 24, len(code) - 3), 4):
+            add = struct.unpack_from("<I", code, follow)[0]
+            if add & 0xFF000000 != 0x91000000 or (add >> 5) & 31 != reg:
+                continue
+            if (add >> 22) & 3 not in (0, 1):
+                continue
+            shift = 12 if (add >> 22) & 1 else 0
+            target = page + (((add >> 10) & 0xFFF) << shift)
+            refs.append((at, follow, target))
+    refs.sort(key=lambda r: (abs(r[0] - site), r[0], r[1]))
+    return refs[:limit]
+
+
+def segment_for_address(module, address):
+    """Coarse NSO segment classification, not proof of a pointed-to object."""
+    for name, (base, length) in zip(("text", "ro", "data"), module.segments):
+        if base <= address < base + length:
+            return name
+    if len(module.image) <= address < len(module.image) + module.bss:
+        return "bss"
+    return "outside"
+
+
+
 # Exact original ARM64 MOVZ encodings used by SDK 20.5.17's address manager.
 # These encode mov w8,#0x3fe00000 and mov w9,#0x3fe00000.
 # The two sites are 0x6c bytes apart in that SDK. This does NOT make
@@ -154,6 +198,15 @@ def report(survey_dir):
                            "; ".join(f"0x{at:x}->0x{target:x}" for at, target in calls))
             else:
                 out.append("  - No BL within 96 bytes (not evidence of no memory calls)")
+            if p < 0x100000:
+                refs = nearby_adrp_add_refs(code, p)
+                if refs:
+                    out.append("  - Nearby ADRP+ADD address references (exploratory):")
+                    for at, follow, target in refs:
+                        out.append(f"    - main+0x{at:x}/+0x{follow:x} -> 0x{target:x}"
+                                   f" ({segment_for_address(module, target)})")
+                else:
+                    out.append("  - No nearby ADRP+ADD references detected")
         if len(possibles) > 100:
             out.append("- More candidates omitted.")
     else:

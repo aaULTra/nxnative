@@ -64,6 +64,26 @@ class TestMcd2Diagnostics(unittest.TestCase):
         self.assertEqual((a, b), (1, 2))
         self.assertEqual(pairs, [])
 
+    def test_adrp_add_refs_exploratory_only(self):
+        # ADRP x0, page 0 followed by ADD x0,x0,#0x120.
+        code = bytearray(0x180)
+        struct.pack_into("<I", code, 0x40, 0x90000000)
+        struct.pack_into("<I", code, 0x44, 0x91048000)
+        self.assertEqual(diag.nearby_adrp_add_refs(code, 0x40, radius=32),
+                         [(0x40, 0x44, 0x120)])
+        self.assertEqual(diag.nearby_adrp_add_refs(code, 0x140, radius=8), [])
+
+    def test_address_segment_classification(self):
+        from types import SimpleNamespace
+        m = SimpleNamespace(segments=[(0, 0x100), (0x200, 0x100),
+                                      (0x300, 0x80)], image=bytes(0x380),
+                            bss=0x90)
+        self.assertEqual(diag.segment_for_address(m, 0x50), "text")
+        self.assertEqual(diag.segment_for_address(m, 0x280), "ro")
+        self.assertEqual(diag.segment_for_address(m, 0x340), "data")
+        self.assertEqual(diag.segment_for_address(m, 0x400), "bss")
+        self.assertEqual(diag.segment_for_address(m, 0x500), "outside")
+
     def test_unreal_version_string(self):
         image = b"SDK MW+EpicGames+UnrealEngine-4_27_2-Release\x00"
         self.assertEqual(diag.unreal_versions(image), ["4_27_2"])
