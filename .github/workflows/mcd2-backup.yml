@@ -1,0 +1,142 @@
+# One real-game pipeline: merged NSP extraction, Unreal shader decoding,
+# iOS Metal translation and IPA. Deliver into a dedicated owner-owned Drive
+# file; public artifacts remain compact text only.
+name: MCD2 observable backup build
+
+on:
+  # Downloading several GB is deliberately owner-triggered only.
+  # Set the Google service account secret BEFORE starting a new run.
+  workflow_dispatch:
+    inputs:
+      output_file:
+        description: 'Dedicated editable Drive output file ID (not a game input)'
+        required: true
+        default: '1O-ZC4Sn14HxJ6GpP4mqZWzOzuag1mHyh'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcd2-durable-backup
+  cancel-in-progress: false
+
+jobs:
+  integrated:
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
+    name: iOS shaders, verified IPA and Drive delivery
+    runs-on: xcode-27
+    timeout-minutes: 240
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      BASE_URL: ${{ secrets.MCD2_BASE_URL }}
+      UPDATE_URL: ${{ secrets.MCD2_UPDATE_URL }}
+      MCD2_GDRIVE_SA_JSON: ${{ secrets.MCD2_GDRIVE_SA_JSON }}
+      KEYS_TEXT: ${{ secrets.MCD2_PROD_KEYS }}
+      DM_GAME: '0100A7C01B792000'
+      MCD2_OUTPUT_FILE: ${{ inputs.output_file }}
+      MCD2_STATUS_FILE: '1G-5_oP2paputxsh3tGTMIUOVSSmtWQdU'
+      MCD2_CACHE_INDEX: '1koQFu120AJu3di6hJHuI5WDJss2hWrSR'
+      MCD2_CACHE_A: '1O9tttTH9uIFiKzk8uEHZlQjledLRNZCC'
+      MCD2_CACHE_B: '1aX3o6Q9aM6ycGrXpiNyNoXBFC6xihPMI'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: Check toolchain and install only missing build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = arm64
+          xcodebuild -version
+          python -m pip install lz4 capstone fonttools google-api-python-client google-auth
+          command -v zstd || brew install zstd
+          command -v xcodegen || brew install xcodegen
+          command -v glslangValidator || brew install glslang
+          if ! xcrun -sdk macosx metal --version; then
+            xcodebuild -downloadComponent MetalToolchain
+            xcrun -sdk macosx metal --version
+          fi
+          xcrun --sdk iphoneos --show-sdk-version
+          python dm/gfx/tools/own_compilers.py --check-metal
+          python3 -m unittest discover -s scripts/tests -p 'test_mcd2_*.py' -q
+          df -h "$RUNNER_TEMP"
+      - name: Check dedicated Drive output access before downloading games
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u scripts/mcd2_drive_output.py --output "$MCD2_OUTPUT_FILE"
+          python -u scripts/mcd2_cloud.py --begin
+      - name: Materialize private NSPs in ephemeral disk only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$BASE_URL" && test -n "$UPDATE_URL" && test -n "$KEYS_TEXT" || {
+            echo "::error::MCD2_BASE_URL, MCD2_UPDATE_URL and MCD2_PROD_KEYS are required"; exit 1;
+          }
+          test -n "${MCD2_GDRIVE_SA_JSON:-}" || {
+            echo "::error::Add GitHub Actions secret MCD2_GDRIVE_SA_JSON before running this build"; exit 1;
+          }
+          umask 077
+          mkdir -p "$RUNNER_TEMP/mcd2/game"
+          printf '%s\n' "$KEYS_TEXT" > "$RUNNER_TEMP/mcd2/prod.keys"
+          folder="$RUNNER_TEMP/mcd2/game"
+          python -u scripts/mcd2_drive_api_download.py "$folder" \
+            --base-link "$BASE_URL" --update-link "$UPDATE_URL" \
+            --credentials-env MCD2_GDRIVE_SA_JSON
+          python scripts/mcd2_preflight.py "$folder" --keys "$RUNNER_TEMP/mcd2/prod.keys"
+      - name: Build only iOS shaders and unsigned iOS package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u scripts/mcd2_observed_build.py "$RUNNER_TEMP/mcd2/game" \
+            --keys "$RUNNER_TEMP/mcd2/prod.keys" \
+            --report "$GITHUB_WORKSPACE/mcd2-integrated-report.md"
+      - name: Verify IPA archive and deliver to dedicated Drive output
+        shell: bash
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          python -u scripts/mcd2_drive_output.py --output "$MCD2_OUTPUT_FILE" \
+            --ipa "$RUNNER_TEMP/mcd2/game/MinecraftDungeonsII.ipa"
+      - name: Publish final readable status
+        if: always()
+        shell: bash
+        env:
+          MCD2_FINAL_STATE: ${{ job.status }}
+        run: python -u scripts/mcd2_cloud.py --final-state "$MCD2_FINAL_STATE"
+      - name: Upload text-only integrated result
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mcd2-integrated-report
+          path: mcd2-integrated-report.md
+          if-no-files-found: warn
+          retention-days: 2
+      - name: Save checkpoint index (metadata only; not reusable guest content)
+        if: always()
+        shell: bash
+        run: |
+          src="$RUNNER_TEMP/mcd2/game/mcd2-progress-checkpoints.json"
+          if test -s "$src"; then
+            cp "$src" "$GITHUB_WORKSPACE/mcd2-progress-checkpoints.json"
+          fi
+      - name: Upload non-sensitive checkpoint index
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mcd2-checkpoint-index
+          path: mcd2-progress-checkpoints.json
+          if-no-files-found: warn
+          retention-days: 2
+      - name: Delete private NSPs, keys and all generated game code
+        if: always()
+        shell: bash
+        run: rm -rf -- "$RUNNER_TEMP/mcd2"

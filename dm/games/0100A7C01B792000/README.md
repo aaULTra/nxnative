@@ -12,6 +12,13 @@ longer a prerequisite for creating the IPA. This is workflow progress only:
 the new pipeline has not yet produced a verified IPA or run this game on
 the owner's M4 iPad. See the [build/recovery contract](../../../docs/agents/mcd2-build-recovery.md).
 
+An optional backup entry point now adds readable Drive status and rotating,
+hash-verified backups of completed Metal compile-cache files. It uses a
+separate IPA destination and does not interrupt the first run. Synthetic
+fresh-session restore is tested; real-game cross-run cache reuse and device
+gameplay still require validation. It is partial shader-cache recovery,
+not a completed-stage or whole-build checkpoint.
+
 ## Evidence (2026-10-28 survey)
 
 | Detail | Observed |
