@@ -2092,6 +2092,7 @@ def parse_args(argv):
                     '(dm/gfx/tools/dmsh_chain.lock, Xcode 27.1) instead of stopping; such shaders can render wrong pictures')
     ap.add_argument('--profile-out', help='where the provisional profile goes (default: <NSP folder>/<title ID>_build/profile)')
     ap.add_argument('--provisional', action='store_true', help='build from a provisional profile even when dm/games has one for the game (tests the guesses)')
+    ap.add_argument('--bootstrap-shaders', action='store_true', help='opt-in: for a registered game lacking shader tables, derive local tables from this exact build without changing the registered module build IDs or patch rules')
     ap.add_argument('--no-heap-check', action='store_true', help='a provisional profile: skip the heap check and the address region check on the Mac (the alias / heap split stays a guess); a derived profile: skip the address region check')
     ap.add_argument('--progress', choices=('auto', 'bar', 'lines', 'json', 'off'), help='stage lines on the console: bar = one line per stage, redrawn in place; lines = a plain line every BEAT seconds; json = newline-delimited JSON events (no prompts); off = only each stage\'s start and end '
                     '(default: the PROGRESS setting; auto = bar in a terminal or Spyder, lines when the output goes to a file or a pipe)')
@@ -2288,6 +2289,25 @@ def main(args=None):
         os.environ['DM_GAMES_FIRST'] = env['DM_GAMES_FIRST'] = '1'
         g = gamemod.load(g.id)
         say(f'derived game profile for {pkg_ver} ({disp}): {g.dir}')
+    # An experimental registered game may have verified build IDs and memory
+    # patches but no baseline shader tables. Opt in to a *shader-only* derived
+    # profile, preserving every original build row and byte-checked patch,
+    # and let the real game's shader split populate its own local tables.
+    # Do not silently do this to production profiles whose tables disagree.
+    if args.bootstrap_shaders and not (provisional or derived):
+        absent = [n for n in ('shader_map.tsv', 'shader_facts.tsv', 'shader_pairs.tsv')
+                  if not g.table(n).is_file()]
+        if absent:
+            pdir = work / 'profile'
+            derive_profile(g, pdir / g.id, pkg_ver, game, g.words('modules'), app, shader_only=True)
+            env['DM_GAMES_DIR'] = os.environ['DM_GAMES_DIR'] = os.pathsep.join(
+                [str(pdir)] + [d for d in env.get('DM_GAMES_DIR', '').split(os.pathsep)
+                              if d and d != str(pdir)])
+            env['DM_GAMES_FIRST'] = os.environ['DM_GAMES_FIRST'] = '1'
+            g = gamemod.load(g.id)
+            derived = 'bootstrap shader tables for this exact, registered game build'
+            say(f'[RED] opt-in shader bootstrap: {", ".join(absent)} are absent from the registered profile; '
+                f'building local derived shader tables, retaining all registered build IDs and patches ({pdir})')
     sv = versions if derived else need   # the versions whose files the shaders come from
     game = dirs[pkg_ver]
     # how the shaders are got follows from the packed version's files (profile_guess.py shader_sources): the graphics API, and the shaders made only at run time
