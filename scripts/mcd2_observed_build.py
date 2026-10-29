@@ -20,6 +20,9 @@ import mcd2_checkpoint
 HEARTBEAT_SECONDS = 20
 STALL_LOG_SECONDS = 600
 STALL_IDLE_SECONDS = 180
+WARN_LOG_SECONDS = 180
+WARN_COUNTER_SECONDS = 300
+NOTICE_RATE_SECONDS = 180
 PHASES = (
     (r"build nx_extract", "Prepare extractor"),
     (r"extract", "Extract merged base/update"),
@@ -198,13 +201,14 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact):
                       + (f" ({usage:.1f}% CPU)" if usage is not None else ""),
                       flush=True)
                 last_heartbeat = now
-            if (now - last_log_change >= 180 and now - last_notice >= 180):
+            if (now - last_log_change >= WARN_LOG_SECONDS
+                    and now - last_notice >= NOTICE_RATE_SECONDS):
                 print(f"[NO-PROGRESS] No build-log activity for "
                       f"{round(now - last_log_change)}s in {current}; "
                       "checking CPU and waiting for watchdog (this may still be compilation)", flush=True)
                 last_notice = now
-            if (last_count is not None and now - last_progress_advance >= 300
-                    and now - last_notice >= 180):
+            if (last_count is not None and now - last_progress_advance >= WARN_COUNTER_SECONDS
+                    and now - last_notice >= NOTICE_RATE_SECONDS):
                 print(f"[NO-PROGRESS] Numeric counter unchanged for "
                       f"{round(now - last_progress_advance)}s in {current}; "
                       "CPU activity alone does not prove progress", flush=True)
