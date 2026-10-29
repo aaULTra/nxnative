@@ -2,6 +2,16 @@
 
 **Status: not booted. No IPA or gameplay tested.** This is a source-level profile derived from the first successful Linux NSP survey, not a validated game port.
 
+**Cloud build progress (2026-10-29):** Actions run `40888376530` reported
+15,826/15,826 shaders processed and entered iOS packaging, but the old
+55-minute iOS stage budget terminated it before successful completion.
+The pipeline now targets iOS directly (retaining Unreal/Oodle helper builds)
+with a bounded three-hour pass and a separate, archive-verified delivery
+step into an owner-owned Drive output file. A full Mac shader pass is no
+longer a prerequisite for creating the IPA. This is workflow progress only:
+the new pipeline has not yet produced a verified IPA or run this game on
+the owner's M4 iPad. See the [build/recovery contract](../../../docs/agents/mcd2-build-recovery.md).
+
 ## Evidence (2026-10-28 survey)
 
 | Detail | Observed |
