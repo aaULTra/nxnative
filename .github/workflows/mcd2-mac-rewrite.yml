@@ -7,6 +7,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/mcd2-mac-rewrite.yml'
+      - 'dm/tools/sdk_patches.py'
+      - 'dm/games/0100A7C01B792000/patches.py'
   workflow_dispatch:
 
 permissions:
@@ -97,6 +99,58 @@ jobs:
             python -u dm/tools/patch_nso.py "$RUNNER_TEMP/mcd2/extract/ExeFS/$mod" "$RUNNER_TEMP/mcd2/patched" "$mod"
             test -s "$RUNNER_TEMP/mcd2/patched/$mod.patched.bin"
           done
+      - name: Confirm exact-build SDK memory cuts were actually applied
+        shell: bash
+        run: |
+          set -euo pipefail
+          cuts="$RUNNER_TEMP/mcd2/patched/sdk.cuts.tsv"
+          test -s "$cuts"
+          grep -q '^# BUILD_ID[[:space:]]*190030518b5d64e5d87b84bc54661af9
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          source = Path(os.environ["RUNNER_TEMP"]) / "mcd2/patched"
+          dst = Path(os.environ["GITHUB_WORKSPACE"]) / "mcd2-rewrite-summary.md"
+          lines = ["# MCD2 updated Apple ARM64 module rewrite", "",
+                   "Preflight only: does not prove boot, graphics, performance or iPad compatibility.",
+                   "No NSPs, keys, compiled modules or decrypted game files are published.", ""]
+          for module in ("main", "sdk", "subsdk0"):
+              binary = source / (module + ".patched.bin")
+              fixups = (source / (module + ".fixups.tsv")).read_text().splitlines()
+              build = next((l.split("\t", 1)[1] for l in fixups if l.startswith("# BUILD_ID\t")), "unknown")
+              lines.append(f"- {module}: build ID {build}, rewritten size {binary.stat().st_size:,} bytes")
+              if module == "sdk":
+                  cuts = (source / "sdk.cuts.tsv").read_text().splitlines()
+                  actual = sum(bool(row.strip()) and not row.startswith("#") for row in cuts)
+                  lines.append(f"  - SDK 20.5.15 node-area cuts verified and applied: {actual}")
+          lines += ["", "Unreal's FMallocBinned3 interception is not yet registered for this build.",
+                    "The 5 GiB guest block is a profile choice, not verified boot behaviour.",
+                    "Increased Memory Limit only; no Extended Virtual Addressing assumed."]
+          dst.write_text("\n".join(lines) + "\n")
+          print("Wrote metadata-only module rewrite summary.")
+          PY
+      - name: Upload summary only (never guest code)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mcd2-rewrite-summary
+          path: mcd2-rewrite-summary.md
+          if-no-files-found: error
+          retention-days: 1
+      - name: Delete keys, NSPs and rewritten modules
+        if: always()
+        shell: bash
+        run: rm -rf -- "$RUNNER_TEMP/mcd2"
+ "$cuts"
+          grep -q '^0x145cbc[[:space:]]' "$cuts"
+          grep -q '^0x145d28[[:space:]]' "$cuts"
+          count=$(grep -vc '^#' "$cuts")
+          test "$count" = 2 || {
+            echo "::error::Expected exactly the two MCD2 SDK node-area cuts, found $count"; exit 1;
+          }
+          echo "Verified the original NSO bytes matched and exactly 2 MCD2 SDK cuts were applied."
       - name: Create safe text-only build summary
         shell: bash
         run: |
