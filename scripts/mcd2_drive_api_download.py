@@ -36,9 +36,9 @@ def drive_file_id(link):
 
 def run(folder, base_link, update_link, json_env):
     # Imports here allow URL validation and synthetic unit tests without API deps.
-    from google.oauth2 import service_account
-    from googleapiclient.discovery import build
-    from googleapiclient.http import MediaIoBaseDownload
+    from google.oauth2 import service_account  # type: ignore[reportMissingImports]
+    from googleapiclient.discovery import build  # type: ignore[reportMissingImports]
+    from googleapiclient.http import MediaIoBaseDownload  # type: ignore[reportMissingImports]
 
     raw = os.environ.get(json_env, "")
     if not raw:
