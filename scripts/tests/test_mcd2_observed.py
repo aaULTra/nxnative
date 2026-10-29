@@ -49,7 +49,7 @@ class TestMcd2Monitor(unittest.TestCase):
             work = folder / f"{monitor.base.GAME}_build"
             patched = work / "patched_v65536"
             patched.mkdir(parents=True)
-            (work / "patched_v65536.key").write_text("a" * 64 + "\\n")
+            (work / "patched_v65536.key").write_text("a" * 64 + "\n")
             for module in ("main", "sdk", "subsdk0"):
                 (patched / f"{module}.patched.bin").write_bytes(b"test")
             script = (
