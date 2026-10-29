@@ -1,7 +1,10 @@
 # Minecraft Dungeons II: build integrity, visibility and recovery contract
 
-The one supported real-game pipeline is **`MCD2 observable recovery build`**
-(`.github/workflows/mcd2-observed.yml`). It is **manual-only**, since the
+The basic real-game entry point is **`MCD2 observable recovery build`**
+(`.github/workflows/mcd2-observed.yml`). The optional **`MCD2 observable backup
+build`** (`.github/workflows/mcd2-backup.yml`) uses the same observed builder
+and adds readable live status and partial Metal-cache recovery. Both are
+**manual-only** on main, since the
 inputs are large and the target game data and keys must remain private. The
 legacy unobserved `mcd2-integrated.yml` Actions workflow has been retired.
 
@@ -82,6 +85,10 @@ return the app's `Documents/log.txt` for actual device validation.
 
 ## What survives GitHub Actions termination?
 
+The following limitation applies to the **basic** workflow. The backup
+workflow saves the limited Metal compile cache described below, not whole
+extraction/rewrite stages.
+
 Local shader caches, derived profiles, downloaded files and intermediate
 modules **do not** survive termination of a GitHub-hosted runner. The small
 checkpoint-index artifact is a diagnosis/history record, **not** a backup
@@ -95,6 +102,61 @@ runner. The secure restore process must check the exact source file IDs,
 versions, toolchain, content hashes and stage fingerprints before reuse;
 until then cross-run resume is **not enabled**. No public repository upload
 is a substitute for private storage.
+
+## Optional readable status and partial shader-cache backup
+
+The backup workflow has its own concurrency group, Drive output file and
+four user-owned Drive state files, shared with the existing service account:
+`MCD2-live-status.json`, `MCD2-cache-index.json`, and two cache archive slots.
+It cannot cancel the basic run or overwrite that run's IPA. Starting both
+still repeats downloads and compilation and uses another Mac runner.
+
+`scripts/mcd2_cloud.py` publishes a small status document approximately
+every 20 seconds during the build. It includes the whitelisted phase,
+numeric done/total counters when present, elapsed/phase time, CPU reading,
+time since log/counter changes, and separate **sampled_at** and
+**published_at** timestamps. A fresh upload with an old sample is not proof
+that the watcher is advancing. Raw logs and game content are never copied
+into the document. Each run ID is recorded; stale timestamps mean visibility
+is unavailable, not that the build succeeded. Status publication uses a
+separate thread, bounded network calls, and does not replace the local idle
+watchdog or finite build deadline. On completion the final workflow step
+marks delivery success/failure; `packaged` alone does not claim delivery.
+
+Every ten minutes, and after the complete iOS library stage, an independent
+worker snapshots only atomically published, content-keyed `.metallib` files
+under `shader/cache/cas/metallib`. No `.key` stage-completion marker, key
+file, NSP, RomFS or raw log is archived. This deliberately saves expensive
+Metal compilations while earlier extraction and rewrite may run again. It
+does not skip translation, claim a completed library stage, or fix the
+game's allocator. The normal Metal cache key still decides whether any
+restored library matches its MSL, compile convention and compiler.
+
+Snapshots are bounded to 512 MiB of library payload, 100,000 entries, and ten
+minutes per network transfer. They carry a manifest with each file's size
+and SHA-256, exact source revision, the verified input Drive IDs/MD5s/sizes,
+compiler/SDK identity and shader chain. Restores require matching identity,
+stored and downloaded archive size/MD5, safe regular-file paths, matching
+manifest membership and every SHA-256 before publishing any cache entry.
+All normal builder fingerprints remain authoritative. If the cache exceeds
+the payload budget, the snapshot contains a subset; omitted libraries are
+compiled normally. Two archive slots use roughly at most 1 GiB plus archive
+metadata, rather than backing up the entire multi-GB game workspace.
+
+The uploader writes the other archive slot, verifies its stored checksum,
+then commits and reads back the small checkpoint index. An interrupted
+upload leaves the previous indexed generation available. The next upload
+re-reads the index after lost responses before selecting a slot. Both slots
+consume the owner's Drive quota, and periodic snapshots add disk/network
+work. Quota/network errors appear in status and leave the build running
+with its local cache; they do not establish durable recovery. Abrupt job
+termination can still lose work since the last verified snapshot.
+
+Synthetic tests exercise live status, safe archive restore, a fresh-session
+cache restore, content corruption, incompatible toolchains, unsafe paths,
+interrupted uploads and lost checkpoint-index responses. These tests do not
+establish a successful real-game cache restore on another GitHub runner;
+that remains a measured validation step for the first backup run.
 
 ## Useful CI markers
 

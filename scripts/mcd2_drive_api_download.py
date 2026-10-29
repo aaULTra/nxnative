@@ -69,6 +69,7 @@ def run(folder, base_link, update_link, json_env):
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     files = [(base_link, BASE_FILENAME, BASE_BYTES), (update_link, UPDATE_FILENAME, UPDATE_BYTES)]
+    identities = []
     for ix, (link, filename, size) in enumerate(files, 1):
         file_id = drive_file_id(link)
         # Fail early on broken sharing or the wrong file. No credentials,
@@ -82,6 +83,7 @@ def run(folder, base_link, update_link, json_env):
         checksum = meta.get("md5Checksum", "")
         if not re.fullmatch(r"[0-9a-f]{32}", checksum):
             raise ValueError(f"NSP {ix}: Drive did not provide a checksum for this binary")
+        identities.append({"id": file_id, "size": size, "md5": checksum})
         dest = folder / filename
         if dest.is_file():
             try:
@@ -116,6 +118,8 @@ def run(folder, base_link, update_link, json_env):
             partial.unlink(missing_ok=True)
             raise
         print(f"[DRIVE API] NSP {ix}/2 fully downloaded; size and Google Drive checksum verified ({size:,} bytes)", flush=True)
+    # Private restore identity, written only after BOTH full-byte checks pass.
+    (folder / "mcd2-input-identity.json").write_text(json.dumps(identities, sort_keys=True))
 
 
 def main():

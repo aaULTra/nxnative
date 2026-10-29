@@ -12,6 +12,8 @@ import signal
 import subprocess
 import sys
 import time
+from functools import partial
+from pathlib import Path
 
 import mcd2_integrated_build as base
 import mcd2_checkpoint
@@ -90,7 +92,7 @@ def stop_group(proc):
         proc.wait(timeout=5)
 
 
-def run_stage_once(name, cmd, timeout, env, log, repo, redact):
+def run_stage_once(name, cmd, timeout, env, log, repo, redact, cloud=None):
     # Never stream the child process's raw logs to a public Actions job:
     # a tool may include decrypted content or paths in its diagnostics.
     # Stream ONLY whitelisted stage descriptions and numeric progress.
@@ -111,6 +113,7 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact):
     phase_start = start
     last_progress_advance = start
     last_count = None
+    last_total = None
     last_notice = start
     last_log_change = start
     last_idle = None
@@ -118,6 +121,8 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact):
     log_pos = 0
     pending = ""
     print(f"[OBSERVED] start {name}; watchdog enabled", flush=True)
+    if cloud:
+        cloud.observe(current, elapsed_s=0)
     with log.open("wb") as out:
         proc = subprocess.Popen(
             command, cwd=repo, env=env, stdin=subprocess.DEVNULL,
@@ -157,6 +162,7 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact):
                                 phase_start = now
                                 last_progress_advance = now
                                 last_count = None
+                                last_total = None
                                 safe_counts = ""
                             current = new_phase
                         if ev == "progress":
@@ -167,8 +173,12 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact):
                                 if last_count is None or done > last_count:
                                     last_progress_advance = now
                                 last_count = done
+                                last_total = total
                         if ev == "stage":
                             print(f"[OBSERVED] phase: {current}", flush=True)
+                            if cloud:
+                                cloud.observe(current, elapsed_s=round(now - start),
+                                              phase_s=0, done=last_count, total=last_total)
                     elif ev == "stage_end" and event.get("ok") is True:
                         raw = event.get("name", "")
                         label = phase_name(str(raw))
@@ -184,6 +194,8 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact):
                             checkpoints.append(checkpoint)
                             journal.write_text(json.dumps(checkpoints, indent=2))
                             print(f"[CHECKPOINT] verified {verified}", flush=True)
+                            if cloud and verified == "ios-metal-libraries":
+                                cloud.capture.set()
                         else:
                             print(f"[STAGE] completed {label}; no reusable checkpoint verified", flush=True)
             if now - last_heartbeat >= HEARTBEAT_SECONDS:
@@ -200,6 +212,11 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact):
                       + (f" ({usage:.1f}% CPU)" if usage is not None else ""),
                       flush=True)
                 last_heartbeat = now
+                if cloud:
+                    cloud.observe(current, elapsed_s=elapsed, phase_s=round(now - phase_start),
+                                  done=last_count, total=last_total, cpu_percent=usage,
+                                  log_idle_s=round(now - last_log_change),
+                                  counter_idle_s=round(now - last_progress_advance))
             if (now - last_log_change >= WARN_LOG_SECONDS
                     and now - last_notice >= NOTICE_RATE_SECONDS):
                 print(f"[NO-PROGRESS] No build-log activity for "
@@ -240,19 +257,23 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact):
         error = f"Time limit exceeded during {current}; child process group terminated"
     print(f"[OBSERVED] finished {name}; exit={code}; elapsed={sec}s; "
           f"{len(checkpoints)} completed local checkpoints", flush=True)
+    if cloud:
+        cloud.note(exit_code=code, failure_kind=("idle_watchdog" if stall else
+                   "time_limit" if code == 124 else "process_exit" if code else "none"))
     return {"name": name, "code": code, "seconds": sec, "error": error, "phase": current}
 
 
 
-def stage_observed(name, cmd, timeout, env, log, repo, redact):
-    first = run_stage_once(name, cmd, timeout, env, log, repo, redact)
+def stage_observed(name, cmd, timeout, env, log, repo, redact, cloud=None):
+    runner = partial(run_stage_once, cloud=cloud) if cloud else run_stage_once
+    first = runner(name, cmd, timeout, env, log, repo, redact)
     if first["code"] == 124 and name == "ios-ipa-build":
         # Try once more on the SAME runner, where nxnative's fingerprinted
         # extracted modules and finished shader outputs are still available.
         # This is not recovery across different GitHub-hosted machines.
         print("[RECOVERY] Retrying iOS stage once using local completed outputs; "
               "second attempt capped at 10 minutes", flush=True)
-        return run_stage_once(name, cmd, min(600, timeout), env, log, repo, redact)
+        return runner(name, cmd, min(600, timeout), env, log, repo, redact)
     return first
 
 
@@ -262,8 +283,25 @@ def main():
     parser.add_argument("--keys", required=True)
     parser.add_argument("--report", required=True)
     args = parser.parse_args()
-    base.stage = stage_observed
-    return base.run(args)
+    cloud = None
+    if os.environ.get("MCD2_STATUS_FILE"):
+        import mcd2_cloud
+        repo = Path(__file__).resolve().parents[1]
+        try:
+            cloud = mcd2_cloud.CloudSession(args.game_dir,
+                        mcd2_cloud.environment_identity(repo, args.game_dir), mcd2_cloud.configured_ids())
+            cloud.start()
+        except Exception:
+            print("[RED] Cloud state preflight failed before game build; check dedicated file access", flush=True)
+            return 1
+    base.stage = partial(stage_observed, cloud=cloud) if cloud else stage_observed
+    code = 1
+    try:
+        code = base.run(args)
+        return code
+    finally:
+        if cloud:
+            cloud.close(code)
 
 
 if __name__ == "__main__":
