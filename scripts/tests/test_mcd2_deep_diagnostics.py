@@ -46,6 +46,24 @@ class TestMcd2Diagnostics(unittest.TestCase):
         self.assertEqual(diag.near_direct_calls(code, 12, radius=20, limit=1),
                          [(16, 8)])
 
+    def test_sdk_node_area_signature_pair(self):
+        # Synthetic reproduction of the 0x6c-byte distance in SDK 20.5.17.
+        code = bytearray(0x150)
+        struct.pack_into("<I", code, 0x40, diag.SDK_NODE_LIMIT_MOV)
+        struct.pack_into("<I", code, 0xAC, diag.SDK_NODE_OCCUPIED_MOV)
+        pairs, a, b = diag.sdk_node_area_sites(code)
+        self.assertEqual((a, b), (1, 1))
+        self.assertEqual(pairs, [(0x40, 0xAC, 0x6C)])
+
+    def test_sdk_node_area_wrong_order_or_gap_rejected(self):
+        code = bytearray(0x300)
+        struct.pack_into("<I", code, 0x80, diag.SDK_NODE_OCCUPIED_MOV)
+        struct.pack_into("<I", code, 0x120, diag.SDK_NODE_LIMIT_MOV)
+        struct.pack_into("<I", code, 0x2C0, diag.SDK_NODE_OCCUPIED_MOV)
+        pairs, a, b = diag.sdk_node_area_sites(code)
+        self.assertEqual((a, b), (1, 2))
+        self.assertEqual(pairs, [])
+
     def test_unreal_version_string(self):
         image = b"SDK MW+EpicGames+UnrealEngine-4_27_2-Release\x00"
         self.assertEqual(diag.unreal_versions(image), ["4_27_2"])
