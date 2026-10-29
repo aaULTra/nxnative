@@ -59,6 +59,32 @@ truncating them, and with opcode-verified patches of this game's exact
 build ID. Even an increased resident-memory allowance cannot make the
 original giant virtual reservations work.
 
+## Unreal 5.6.1 allocator candidate (not yet safe to patch)
+
+The text-only private diagnostic in Actions run `40797926825` verified the
+exact updated `main` build ID `9e9d887d59f7f7db176b35e3379258b9`.
+The startup call `main+0x143b0 → main+0xb0560` is present. Immediately
+before the call, the address calculation at `main+0x143a4/+0x143a8`
+prepares `x0 = main+0x9979228`, a BSS address. This is a *candidate*
+allocator object, not yet a confirmed FMallocBinned3 instance.
+
+In the first 768 bytes of the called function, the diagnostic found data
+references `main+0x85b6ff0` and `main+0x85b68a8`, a BSS reference
+`main+0x9dc7884`, and calls to multiple engine functions. The identities
+of those globals, their relocations and the FMalloc vtable **have not**
+been confirmed. The closest source reference, FINAL FANTASY RESONANCE
+(also Unreal Engine 5.6.1), cuts its own constructor and installs the
+host malloc-zone vtable, but that game's offsets are not portable.
+
+**Do not add a CUT at `0x143b0` or a `hle_uemalloc.c` row yet.** First
+confirm the function's construction semantics, object shape, vtable
+address and the original instruction bytes in the exact MCD2 NSO.
+The current SDK node-area patch is independently verified; this
+outstanding Unreal host allocator work is separate and remains a boot
+blocker. It must be completed within the existing **5 GiB** guest
+reservation, using only Increased Memory Limit, **without** Extended
+Virtual Addressing.
+
 ## SDK 20.5.15 compact node-area patch
 
 The 2026-10-29 private diagnostic (Actions run `40793486912`) found
