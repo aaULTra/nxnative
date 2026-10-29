@@ -5,6 +5,7 @@ Only the two expected file IDs are read. Credentials come from an Actions
 secret; no signed URLs, keys or game bytes are written into the repository.
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -34,6 +35,21 @@ def drive_file_id(link):
     raise ValueError("Unsupported Drive link; use a /file/d/FILE_ID/view link")
 
 
+def verify_download(path, expected_size, expected_md5):
+    """Read the entire file to detect incomplete, HTML and corrupted downloads."""
+    if not re.fullmatch(r"[0-9a-f]{32}", expected_md5 or ""):
+        raise ValueError("Drive did not return a valid uploaded-binary checksum")
+    if not path.is_file() or path.stat().st_size != expected_size:
+        raise ValueError("Download is missing, partial or the wrong size")
+    digest = hashlib.md5(usedforsecurity=False)
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            digest.update(block)
+    if digest.hexdigest() != expected_md5:
+        raise ValueError("Downloaded bytes do not match the checksum recorded by Google Drive")
+    return True
+
+
 def run(folder, base_link, update_link, json_env):
     # Imports here allow URL validation and synthetic unit tests without API deps.
     from google.oauth2 import service_account  # type: ignore[reportMissingImports]
@@ -58,15 +74,23 @@ def run(folder, base_link, update_link, json_env):
         # Fail early on broken sharing or the wrong file. No credentials,
         # private URLs or original filenames are printed.
         meta = drive.files().get(
-            fileId=file_id, fields="size,mimeType,capabilities/canDownload").execute(num_retries=5)
+            fileId=file_id, fields="size,mimeType,md5Checksum,capabilities/canDownload").execute(num_retries=5)
         if int(meta.get("size", -1)) != size or meta.get("mimeType", "").startswith("application/vnd.google-apps"):
             raise ValueError(f"NSP {ix}: Drive metadata does not match the expected binary size/type")
         if meta.get("capabilities", {}).get("canDownload") is False:
             raise ValueError(f"NSP {ix}: service account cannot download the shared file")
+        checksum = meta.get("md5Checksum", "")
+        if not re.fullmatch(r"[0-9a-f]{32}", checksum):
+            raise ValueError(f"NSP {ix}: Drive did not provide a checksum for this binary")
         dest = folder / filename
-        if dest.is_file() and dest.stat().st_size == size:
-            print(f"[DRIVE API] NSP {ix}/2 already verified ({size:,} bytes)", flush=True)
-            continue
+        if dest.is_file():
+            try:
+                verify_download(dest, size, checksum)
+            except ValueError:
+                dest.unlink(missing_ok=True)
+            else:
+                print(f"[DRIVE API] NSP {ix}/2 checksum + size verified ({size:,} bytes), reusing", flush=True)
+                continue
         partial = dest.with_suffix(".partial")
         print(f"[DRIVE API] Downloading NSP {ix}/2 using private authorized API", flush=True)
         # Disk backed and chunked; never buffers a 1.6+ GB file into memory.
@@ -83,13 +107,15 @@ def run(folder, base_link, update_link, json_env):
                     if decile > last_decile:
                         last_decile = decile
                         print(f"[DRIVE API] NSP {ix}/2: {min(decile, 10) * 10}% received", flush=True)
-            if partial.stat().st_size != size:
-                raise ValueError(f"NSP {ix}: download size verification failed")
+            try:
+                verify_download(partial, size, checksum)
+            except ValueError as exc:
+                raise ValueError(f"NSP {ix}: integrity check failed: {exc}") from None
             partial.replace(dest)
         except Exception:
             partial.unlink(missing_ok=True)
             raise
-        print(f"[DRIVE API] NSP {ix}/2 verified ({size:,} bytes)", flush=True)
+        print(f"[DRIVE API] NSP {ix}/2 fully downloaded; size and Google Drive checksum verified ({size:,} bytes)", flush=True)
 
 
 def main():
