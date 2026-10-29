@@ -104,6 +104,7 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact):
     except (OSError, ValueError):
         checkpoints = []
     current = "Starting build"
+    safe_counts = ""
     last_log_change = start
     last_idle = None
     last_heartbeat = start
@@ -145,7 +146,13 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact):
                         raw_name = event.get("name")
                         if isinstance(raw_name, str):
                             current = phase_name(raw_name)
+                        if ev == "progress":
+                            done, total = event.get("done"), event.get("total")
+                            if (type(done) is int and type(total) is int
+                                    and 0 <= done <= total <= 10**9 and total > 0):
+                                safe_counts = f"; {done:,}/{total:,} processed"
                         if ev == "stage":
+                            safe_counts = ""
                             print(f"[OBSERVED] phase: {current}", flush=True)
                     elif ev == "stage_end" and event.get("ok") is True:
                         label = phase_name(str(event.get("name", "")))
@@ -163,7 +170,7 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact):
                 last_idle = idle
                 elapsed = round(now - start)
                 status = "working" if active else "CPU low/unknown"
-                print(f"[HEARTBEAT] {name}: {current}; {elapsed}s; "
+                print(f"[HEARTBEAT] {name}: {current}{safe_counts}; {elapsed}s; "
                       f"log idle {round(now - last_log_change)}s; {status}"
                       + (f" ({usage:.1f}% CPU)" if usage is not None else ""),
                       flush=True)
@@ -172,7 +179,7 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact):
                 break
             if now - start >= timeout:
                 code = 124
-                print(f"[WATCHDOG] stage time limit reached for {name}", flush=True)
+                print(f"[WATCHDOG] stage time limit reached during {current} ({name})", flush=True)
                 break
             # Only stop a genuinely idle subprocess. Long, CPU-heavy
             # shader compilation must continue even without new log lines.
@@ -191,24 +198,29 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact):
     sec = round(time.monotonic() - start)
     error = base.private_error(log, redact) if code else ""
     if stall:
-        error = "Low CPU and no build-log activity for over 10 minutes; stalled process group terminated"
+        error = f"Low CPU and no build-log activity during {current}; stalled process group terminated"
     elif code == 124:
-        error = "Build stage exceeded the configured time limit; child process group terminated"
+        error = f"Time limit exceeded during {current}; child process group terminated"
     print(f"[OBSERVED] finished {name}; exit={code}; elapsed={sec}s; "
           f"{len(checkpoints)} completed local checkpoints", flush=True)
-    return {"name": name, "code": code, "seconds": sec, "error": error}
+    return {"name": name, "code": code, "seconds": sec, "error": error, "phase": current}
 
 
 
 def stage_observed(name, cmd, timeout, env, log, repo, redact):
+    if name == "mac-shaders-and-host":
+        # The first real run exhausted 55 minutes while active shader workers
+        # were still producing files. Allow 75 minutes while retaining the
+        # independent idle watchdog and the job's 150-minute total cap.
+        timeout = max(timeout, 4500)
     first = run_stage_once(name, cmd, timeout, env, log, repo, redact)
     if first["code"] == 124 and name == "mac-shaders-and-host":
         # Try once more on the SAME runner, where nxnative's fingerprinted
         # extracted modules and finished shader outputs are still available.
         # This is not recovery across different GitHub-hosted machines.
         print("[RECOVERY] Retrying Mac stage once using local completed outputs; "
-              "second attempt capped at 15 minutes", flush=True)
-        return run_stage_once(name, cmd, min(900, timeout), env, log, repo, redact)
+              "second attempt capped at 10 minutes", flush=True)
+        return run_stage_once(name, cmd, min(600, timeout), env, log, repo, redact)
     return first
 
 
