@@ -36,6 +36,16 @@ class TestMcd2Diagnostics(unittest.TestCase):
         self.assertEqual(diag.possible_62g_immediates(code), [4])
         self.assertEqual(diag.possible_62g_immediates(b"no candidate"), [])
 
+    def test_near_direct_calls_sign_extend_and_sort_by_distance(self):
+        # AArch64 BL #+8 at byte offset 4; BL #-8 at byte offset 16.
+        code = struct.pack("<IIIIII",
+                           0xD503201F, 0x94000002, 0xD503201F,
+                           0xD503201F, 0x97FFFFFE, 0xD503201F)
+        self.assertEqual(diag.near_direct_calls(code, 12, radius=20),
+                         [(16, 8), (4, 12)])
+        self.assertEqual(diag.near_direct_calls(code, 12, radius=20, limit=1),
+                         [(16, 8)])
+
     def test_unreal_version_string(self):
         image = b"SDK MW+EpicGames+UnrealEngine-4_27_2-Release\x00"
         self.assertEqual(diag.unreal_versions(image), ["4_27_2"])
