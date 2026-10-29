@@ -1,5 +1,7 @@
 """Synthetic checks for authenticated large-file Drive API inputs."""
+import hashlib
 from pathlib import Path
+import tempfile
 import sys
 import unittest
 
@@ -26,14 +28,36 @@ class TestAuthenticatedDriveDownload(unittest.TestCase):
         self.assertEqual(auth.BASE_BYTES, 1662600274)
         self.assertEqual(auth.UPDATE_BYTES, 2943659595)
 
+    def test_exact_bytes_are_required_not_just_size(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "test.nsp"
+            content = b"exact-game-bytes"
+            path.write_bytes(content)
+            md5 = hashlib.md5(content, usedforsecurity=False).hexdigest()
+            self.assertTrue(auth.verify_download(path, len(content), md5))
+            with self.assertRaisesRegex(ValueError, "wrong size"):
+                auth.verify_download(path, len(content) + 1, md5)
+            # Same byte length, different contents: size-only checks miss this.
+            path.write_bytes(b"x" * len(content))
+            with self.assertRaisesRegex(ValueError, "checksum"):
+                auth.verify_download(path, len(content), md5)
+            with self.assertRaisesRegex(ValueError, "checksum"):
+                auth.verify_download(path, len(content), "")
+            path.unlink()
+            with self.assertRaisesRegex(ValueError, "missing"):
+                auth.verify_download(path, len(content), md5)
+
     def test_workflow_downloads_authenticated_and_only_manually(self):
         repo = Path(__file__).resolve().parents[2]
         workflow = (repo / ".github/workflows/mcd2-observed.yml").read_text()
         self.assertIn("MCD2_GDRIVE_SA_JSON: ${{ secrets.MCD2_GDRIVE_SA_JSON }}", workflow)
         self.assertIn("python -u scripts/mcd2_drive_api_download.py", workflow)
+        self.assertIn("python scripts/mcd2_preflight.py", workflow)
         self.assertIn("workflow_dispatch:", workflow)
         self.assertNotIn("  push:\n", workflow)
         self.assertNotIn("gdown --quiet", workflow)
+        self.assertFalse((repo / ".github/workflows/mcd2-integrated.yml").exists(),
+                         "Deprecated, unobserved workflow must not permit future builds")
 
 
 if __name__ == "__main__":

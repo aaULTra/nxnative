@@ -35,13 +35,52 @@ class TestMcd2Monitor(unittest.TestCase):
                     "synthetic", [sys.executable, "-c", script], 15,
                     {}, folder / "private.log", folder, folder)
             self.assertEqual(result["code"], 0)
-            self.assertIn("[CHECKPOINT] completed Decode Unreal shaders", captured.getvalue())
+            self.assertIn("[STAGE] completed Decode Unreal shaders; no reusable checkpoint verified",
+                          captured.getvalue())
             self.assertEqual(result["phase"], "Decode Unreal shaders")
             self.assertNotIn("PRIVATE-CONTENT-NOT-FOR-PUBLIC-LOGS", captured.getvalue())
-            rows = json.loads((folder / "mcd2-progress-checkpoints.json").read_text())
-            self.assertEqual(rows[0]["phase"], "Decode Unreal shaders")
+            self.assertFalse((folder / "mcd2-progress-checkpoints.json").exists())
             self.assertIn("PRIVATE-CONTENT-NOT-FOR-PUBLIC-LOGS",
                           (folder / "private.log").read_text())
+
+    def test_verified_rewrite_checkpoint_when_stamp_and_outputs_exist(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = Path(td)
+            work = folder / f"{monitor.base.GAME}_build"
+            patched = work / "patched_v65536"
+            patched.mkdir(parents=True)
+            (work / "patched_v65536.key").write_text("a" * 64 + "\n")
+            for module in ("main", "sdk", "subsdk0"):
+                (patched / f"{module}.patched.bin").write_bytes(b"test")
+            script = (
+                "import json;"
+                "print(json.dumps({'ev':'stage','name':'rewrite'}),flush=True);"
+                "print(json.dumps({'ev':'stage_end','name':'rewrite','ok':True}),flush=True)"
+            )
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                result = monitor.stage_observed(
+                    "synthetic", [sys.executable, "-c", script], 15,
+                    {}, folder / "private.log", folder, folder)
+            self.assertEqual(result["code"], 0)
+            self.assertIn("[CHECKPOINT] verified rewritten-modules", captured.getvalue())
+            rows = json.loads((folder / "mcd2-progress-checkpoints.json").read_text())
+            self.assertEqual(rows[0]["verified_output"], "rewritten-modules")
+
+    def test_silent_work_is_diagnosed_before_hard_timeout(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = Path(td)
+            with (patch.object(monitor, "WARN_LOG_SECONDS", 0.1),
+                  patch.object(monitor, "NOTICE_RATE_SECONDS", 0.1),
+                  patch.object(monitor, "HEARTBEAT_SECONDS", 0.1)):
+                captured = io.StringIO()
+                with contextlib.redirect_stdout(captured):
+                    result = monitor.stage_observed(
+                        "synthetic", [sys.executable, "-c", "import time;time.sleep(2.5)"],
+                        15, {}, folder / "private.log", folder, folder)
+            self.assertEqual(result["code"], 0)
+            self.assertIn("[NO-PROGRESS] No build-log activity", captured.getvalue())
+            self.assertIn("Starting build", captured.getvalue())
 
     def test_idle_watchdog_stops_a_true_hang(self):
         with tempfile.TemporaryDirectory() as td:
