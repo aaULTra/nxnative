@@ -17,6 +17,7 @@ from pathlib import Path
 
 import mcd2_integrated_build as base
 import mcd2_checkpoint
+import mcd2_activity
 
 HEARTBEAT_SECONDS = 20
 STALL_LOG_SECONDS = 600
@@ -25,6 +26,11 @@ WARN_LOG_SECONDS = 180
 WARN_COUNTER_SECONDS = 300
 NOTICE_RATE_SECONDS = 180
 PHASES = (
+    (r'verify IPA archive', 'Verify IPA archive'),
+    (r'upload IPA', 'Upload IPA to Drive'),
+    (r'checkpoint upload', 'Saving prepared checkpoint'),
+    (r'checkpoint restore', 'Restoring prepared checkpoint'),
+    (r'iOS inputs ready', 'Prepared iOS inputs'),
     (r"build nx_extract", "Prepare extractor"),
     (r"extract", "Extract merged base/update"),
     (r"rewrite", "Rewrite executable modules"),
@@ -168,7 +174,7 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact, cloud=None):
                         if ev == "progress":
                             done, total = event.get("done"), event.get("total")
                             if (type(done) is int and type(total) is int
-                                    and 0 <= done <= total <= 10**9 and total > 0):
+                                    and 0 <= done <= total <= 10**15 and total > 0):
                                 safe_counts = f"; {done:,}/{total:,} processed"
                                 if last_count is None or done > last_count:
                                     last_progress_advance = now
@@ -217,6 +223,7 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact, cloud=None):
                                   done=last_count, total=last_total, cpu_percent=usage,
                                   log_idle_s=round(now - last_log_change),
                                   counter_idle_s=round(now - last_progress_advance))
+                    cloud.note(**mcd2_activity.snapshot(proc.pid, redact / f'{base.GAME}_build', redact))
             if (now - last_log_change >= WARN_LOG_SECONDS
                     and now - last_notice >= NOTICE_RATE_SECONDS):
                 print(f"[NO-PROGRESS] No build-log activity for "

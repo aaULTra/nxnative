@@ -65,7 +65,11 @@ def checkpoint(work, raw_name):
         for marker in markers:
             chain = marker.name.removeprefix("mac-").removesuffix(".key")
             libdir = roots / chain
-            if (valid_key(marker) and nonempty(libdir / "_b_build.json")
+            # dmsh_build keeps its reflection/build summary in cache even
+            # for an iOS-only target. The iOS directory carries inputs.tsv.
+            summary = sh / 'cache' / chain / '_b_build.json'
+            if (valid_key(marker) and nonempty(summary)
+                    and (name == 'Mac shaders' or nonempty(libdir / 'inputs.tsv'))
                     and any(nonempty(p) for p in libdir.glob("*_b.metallib"))):
                 return label
     if name == "Mac host":

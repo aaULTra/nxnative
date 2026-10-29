@@ -1,6 +1,6 @@
 # Minecraft Dungeons II — experimental bring-up (`0100A7C01B792000`)
 
-**Status: not booted. No IPA or gameplay tested.** This is a source-level profile derived from the first successful Linux NSP survey, not a validated game port.
+**Status: IPA built, archive verified and delivered; not booted.** This is an experimental profile derived from the Linux NSP survey. Mac/iPad gameplay remains untested.
 
 **Cloud build progress (2026-10-29):** Actions run `40888376530` reported
 15,826/15,826 shaders processed and entered iOS packaging, but the old
@@ -8,9 +8,8 @@
 The pipeline now targets iOS directly (retaining Unreal/Oodle helper builds)
 with a bounded three-hour pass and a separate, archive-verified delivery
 step into an owner-owned Drive output file. A full Mac shader pass is no
-longer a prerequisite for creating the IPA. This is workflow progress only:
-the new pipeline has not yet produced a verified IPA or run this game on
-the owner's M4 iPad. See the [build/recovery contract](../../../docs/agents/mcd2-build-recovery.md).
+longer a prerequisite for creating the IPA. Backup run `40927615593` subsequently produced and delivered a verified
+IPA. The game has not yet run on the owner's M4 iPad. See the [build/recovery contract](../../../docs/agents/mcd2-build-recovery.md).
 
 An optional backup entry point now adds readable Drive status and rotating,
 hash-verified backups of completed Metal compile-cache files. It uses a
@@ -153,3 +152,14 @@ python3 -m unittest discover -s scripts/tests -p 'test_mcd2_*.py' -v
 ```
 
 Do **not** upload game NSPs or `prod.keys` to the public fork or public Actions artifacts. The repository-scoped secrets already configured for the private survey remain separate.
+
+### Cloud delivery milestone (2026-10-29)
+
+Backup run [40927615593](https://github.com/aaULTra/nxnative/actions/runs/40927615593)
+completed iOS preparation, app compilation and IPA packaging. The delivery
+step verified the ZIP CRCs, app resources and Metal payload, then independently
+verified the stored Drive size/MD5 for 4,738,770,141 bytes. This is a successful
+packaging/delivery milestone, **not** Mac or iPad gameplay validation. The
+allocator/bring-up questions above remain open. The previous run's failure
+was after archive validation during delivery; see the
+[recovery contract](../../../docs/agents/mcd2-build-recovery.md#verified-upload-failure-and-complete-preparation-recovery).
