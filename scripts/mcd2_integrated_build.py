@@ -136,6 +136,10 @@ def make_report(results, output, ipa_path):
     lines += ["", "## Mac boot evidence", ""]
     for k, value in boot.get("evidence", {}).items():
         lines.append(f"- {k}: {value}")
+    lines += ["", "## Last observed build phases", ""]
+    for row in results:
+        if row.get("phase"):
+            lines.append(f'- {row["name"]}: {row["phase"]} (exit {row["code"]})')
     lines += ["", "## First actionable blockers", ""]
     errors = [row for row in results if row.get("error")]
     lines.extend(f'- {row["name"]}: {row["error"]}' for row in errors[:6])
