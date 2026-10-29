@@ -1,5 +1,4 @@
 """Synthetic checks for authenticated large-file Drive API inputs."""
-import os
 from pathlib import Path
 import sys
 import unittest
