@@ -56,6 +56,8 @@ class TestAuthenticatedDriveDownload(unittest.TestCase):
         self.assertIn("workflow_dispatch:", workflow)
         self.assertNotIn("  push:\n", workflow)
         self.assertNotIn("gdown --quiet", workflow)
+        self.assertFalse((repo / ".github/workflows/mcd2-integrated.yml").exists(),
+                         "Deprecated, unobserved workflow must not permit future builds")
 
 
 if __name__ == "__main__":
