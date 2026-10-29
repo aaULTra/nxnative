@@ -85,6 +85,20 @@ class TestMcd2GameProfile(unittest.TestCase):
         self.assertNotIn("--provisional --survey-only --progress off", workflow)
         self.assertNotIn("mcd2-survey.md", workflow)
 
+    def test_sdk_node_area_cuts_exact_build_and_original_bytes(self):
+        # The real 20.5.15 survey found both byte encodings at these offsets.
+        # The NSO rewriter asserts the bytes again against the downloaded NSO;
+        # mismatches abort instead of silently patching another SDK build.
+        sys.path.insert(0, str(ROOT / "dm" / "tools"))
+        import sdk_patches
+        bid = EXPECTED_MODULES["sdk"]
+        cuts = sdk_patches.CUTS[bid]
+        self.assertEqual(len(cuts), 2)
+        self.assertEqual([(off, original, replacement) for off, original, replacement, _ in cuts], [
+            (0x145CBC, "08fca752", "087ca052"),
+            (0x145D28, "09fca752", "097ca052"),
+        ])
+
     def test_host_profile_header_renders(self):
         header = game.header(self.profile)
         self.assertIn("DM_GAME_PROGRAM_ID 0x0100A7C01B792000ull", header)
