@@ -70,10 +70,6 @@ jobs:
           umask 077
           mkdir -p "$RUNNER_TEMP/mcd2/game"
           printf '%s\n' "$KEYS_TEXT" > "$RUNNER_TEMP/mcd2/prod.keys"
-          if [ -z "${MCD2_GDRIVE_SA_JSON:-}" ]; then
-            echo "::error::Set repository Actions secret MCD2_GDRIVE_SA_JSON using the service account JSON key, and share both NSPs with the service account email."
-            exit 1
-          fi
           folder="$RUNNER_TEMP/mcd2/game"
           python -u scripts/mcd2_drive_api_download.py "$folder" \
             --base-link "$BASE_URL" --update-link "$UPDATE_URL" \
