@@ -36,6 +36,7 @@ class TestMcd2Monitor(unittest.TestCase):
                     {}, folder / "private.log", folder, folder)
             self.assertEqual(result["code"], 0)
             self.assertIn("[CHECKPOINT] completed Decode Unreal shaders", captured.getvalue())
+            self.assertEqual(result["phase"], "Decode Unreal shaders")
             self.assertNotIn("PRIVATE-CONTENT-NOT-FOR-PUBLIC-LOGS", captured.getvalue())
             rows = json.loads((folder / "mcd2-progress-checkpoints.json").read_text())
             self.assertEqual(rows[0]["phase"], "Decode Unreal shaders")
@@ -57,6 +58,13 @@ class TestMcd2Monitor(unittest.TestCase):
             self.assertEqual(result["code"], 124)
             self.assertIn("[WATCHDOG]", captured.getvalue())
             self.assertIn("Low CPU", str(result["error"]))
+
+    def test_long_shader_stage_budget_and_short_ordinary_budget(self):
+        with patch.object(monitor, "run_stage_once", return_value={"code": 0}) as call:
+            monitor.stage_observed("mac-shaders-and-host", [], 3300, {}, None, None, None)
+            self.assertEqual(call.call_args.args[2], 4500)
+            monitor.stage_observed("ios-ipa-build", [], 3300, {}, None, None, None)
+            self.assertEqual(call.call_args.args[2], 3300)
 
     def test_guard_remains_enforced_for_observed_driver(self):
         repo = Path(__file__).resolve().parents[2]
