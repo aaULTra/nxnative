@@ -4,12 +4,31 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import mcd2_integrated_build as integrated  # noqa: E402
 
 
 class TestMcd2Integrated(unittest.TestCase):
+    def test_device_package_does_not_require_desktop_shader_pass(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = Path(td)
+            keys = folder / "prod.keys"
+            keys.write_text("synthetic test fixture")
+            args = SimpleNamespace(game_dir=str(folder), keys=str(keys),
+                                   report=str(folder / "report.md"))
+            with patch.object(integrated, "stage", return_value={
+                    "name": "ios-ipa-build", "code": 0, "seconds": 1, "error": ""}) as call:
+                self.assertEqual(integrated.run(args), 0)
+            self.assertEqual(call.call_count, 1)
+            command = call.call_args.args[1]
+            self.assertEqual(command[command.index("--platform") + 1], "ios")
+            self.assertEqual(command[command.index("--gpu") + 1], "none")
+            self.assertEqual(call.call_args.args[2], 10800)
+            self.assertIn("Not tested", (folder / "report.md").read_text())
+
     def test_real_profile_requires_increased_memory_not_extended_addressing(self):
         repo = Path(__file__).resolve().parents[2]
         integrated.guard(repo)

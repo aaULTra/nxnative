@@ -1,12 +1,18 @@
-# One real-game pipeline: merged NSP extraction, Unreal shader decoding and
-# Metal translation, Mac host compilation, startup smoke, unsigned iOS IPA.
-# Only a compact text status is uploaded; never game binaries, keys or IPA.
+# One real-game pipeline: merged NSP extraction, Unreal shader decoding,
+# iOS Metal translation and IPA. Deliver into a dedicated owner-owned Drive
+# file; public artifacts remain compact text only.
 name: MCD2 observable recovery build
 
 on:
   # Downloading several GB is deliberately owner-triggered only.
   # Set the Google service account secret BEFORE starting a new run.
   workflow_dispatch:
+    inputs:
+      output_file:
+        description: 'Dedicated editable Drive output file ID (not a game input)'
+        required: true
+        default: '1lu_Myzes9nPWvIR5Mb5Et7QJp7Kw1G6b'
+        type: string
 
 permissions:
   contents: read
@@ -18,9 +24,9 @@ concurrency:
 jobs:
   integrated:
     if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
-    name: Visible shader progress, watchdog, Mac boot and IPA
+    name: iOS shaders, verified IPA and Drive delivery
     runs-on: xcode-27
-    timeout-minutes: 150
+    timeout-minutes: 240
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
       HOMEBREW_NO_AUTO_UPDATE: '1'
@@ -29,6 +35,7 @@ jobs:
       MCD2_GDRIVE_SA_JSON: ${{ secrets.MCD2_GDRIVE_SA_JSON }}
       KEYS_TEXT: ${{ secrets.MCD2_PROD_KEYS }}
       DM_GAME: '0100A7C01B792000'
+      MCD2_OUTPUT_FILE: ${{ inputs.output_file }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -57,6 +64,11 @@ jobs:
           python dm/gfx/tools/own_compilers.py --check-metal
           python3 -m unittest discover -s scripts/tests -p 'test_mcd2_*.py' -q
           df -h "$RUNNER_TEMP"
+      - name: Check dedicated Drive output access before downloading games
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -u scripts/mcd2_drive_output.py --output "$MCD2_OUTPUT_FILE"
       - name: Materialize private NSPs in ephemeral disk only
         shell: bash
         run: |
@@ -75,13 +87,20 @@ jobs:
             --base-link "$BASE_URL" --update-link "$UPDATE_URL" \
             --credentials-env MCD2_GDRIVE_SA_JSON
           python scripts/mcd2_preflight.py "$folder" --keys "$RUNNER_TEMP/mcd2/prod.keys"
-      - name: Attempt Unreal shaders, Mac host boot and unsigned iOS package
+      - name: Build only iOS shaders and unsigned iOS package
         shell: bash
         run: |
           set -euo pipefail
           python -u scripts/mcd2_observed_build.py "$RUNNER_TEMP/mcd2/game" \
             --keys "$RUNNER_TEMP/mcd2/prod.keys" \
             --report "$GITHUB_WORKSPACE/mcd2-integrated-report.md"
+      - name: Verify IPA archive and deliver to dedicated Drive output
+        shell: bash
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          python -u scripts/mcd2_drive_output.py --output "$MCD2_OUTPUT_FILE" \
+            --ipa "$RUNNER_TEMP/mcd2/game/MinecraftDungeonsII.ipa"
       - name: Upload text-only integrated result
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

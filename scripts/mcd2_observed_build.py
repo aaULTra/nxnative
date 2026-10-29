@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Observe a private MCD2 end-to-end build without exposing raw game logs.
 
-A second GitHub Actions job can run in parallel with the original. Completed
-nxnative extraction/shader outputs remain cached ONLY inside this runner.
+Completed nxnative extraction/shader outputs remain cached ONLY inside this runner.
 The public repository never receives game binaries, keys, shaders or IPA.
 """
 import argparse
@@ -246,17 +245,12 @@ def run_stage_once(name, cmd, timeout, env, log, repo, redact):
 
 
 def stage_observed(name, cmd, timeout, env, log, repo, redact):
-    if name == "mac-shaders-and-host":
-        # The first real run exhausted 55 minutes while active shader workers
-        # were still producing files. Allow 75 minutes while retaining the
-        # independent idle watchdog and the job's 150-minute total cap.
-        timeout = max(timeout, 4500)
     first = run_stage_once(name, cmd, timeout, env, log, repo, redact)
-    if first["code"] == 124 and name == "mac-shaders-and-host":
+    if first["code"] == 124 and name == "ios-ipa-build":
         # Try once more on the SAME runner, where nxnative's fingerprinted
         # extracted modules and finished shader outputs are still available.
         # This is not recovery across different GitHub-hosted machines.
-        print("[RECOVERY] Retrying Mac stage once using local completed outputs; "
+        print("[RECOVERY] Retrying iOS stage once using local completed outputs; "
               "second attempt capped at 10 minutes", flush=True)
         return run_stage_once(name, cmd, min(600, timeout), env, log, repo, redact)
     return first

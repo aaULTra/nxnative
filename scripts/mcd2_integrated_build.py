@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""One owner-initiated MCD2 bring-up: shaders, Mac boot, iOS package.
+"""One owner-initiated MCD2 iOS package build.
 
 GitHub's public repository must never publish game binaries or keys.
-Only compact text status leaves the runner; all raw files stay in RUNNER_TEMP.
+Public artifacts contain compact text only; the workflow separately delivers
+the verified IPA into the owner's Drive output file.
 """
 import argparse
 import os
@@ -15,7 +16,9 @@ import time
 GAME = "0100A7C01B792000"
 VERSION = "v65536"
 PROFILE_MAX = 0x140000000
-BUILD_LIMIT = 3300
+# Run 40888376530 reached packaging at ~53 minutes and was killed at 55.
+# Build only the target's shaders and allow a bounded three-hour cold build.
+BUILD_LIMIT = 10800
 BOOT_LIMIT = 35
 
 
@@ -123,9 +126,9 @@ def boot_smoke(work, repo, env, log, redact):
 
 def make_report(results, output, ipa_path):
     state = {row["name"]: row for row in results}
-    lines = ["# Minecraft Dungeons II integrated bring-up", "",
+    lines = ["# Minecraft Dungeons II iOS build", "",
              "Automated preflight only. Does not claim a playable iPad port.",
-             "All game files, extracted modules, keys and IPA stay on the ephemeral runner.",
+             "Build files are temporary. The workflow delivers the verified IPA to the owner's dedicated Drive output.",
              "Only this text report may be published in the public GitHub repository.", "",
              "## Results", "", "| Stage | Status | Runtime |",
              "|---|---|---:|"]
@@ -134,6 +137,8 @@ def make_report(results, output, ipa_path):
         lines.append(f'| {row["name"]} | {status} (exit {row["code"]}) | {row["seconds"]}s |')
     boot = state.get("headless-mac-boot", {})
     lines += ["", "## Mac boot evidence", ""]
+    if not boot.get("evidence"):
+        lines.append("- Not tested: this run builds the iOS package without a desktop shader pass.")
     for k, value in boot.get("evidence", {}).items():
         lines.append(f"- {k}: {value}")
     lines += ["", "## Last observed build phases", ""]
@@ -149,13 +154,14 @@ def make_report(results, output, ipa_path):
     lines += ["", "## IPA packaging", ""]
     if ios.get("code") == 0 and ipa_path.is_file():
         lines.append(f"- Built an unsigned IPA ({ipa_path.stat().st_size:,} bytes) within the temporary runner.")
-        lines.append("- It was NOT uploaded: a public repository artifact must not distribute the game executable or copyrighted RomFS.")
+        lines.append("- NOT uploaded as a public artifact. The separate Drive delivery step must validate the archive and stored checksum before claiming delivery.")
     else:
         lines.append("- No complete unsigned IPA was produced.")
     lines += ["", "## Device constraints", "",
               "- Increased Memory Limit entitlement requested.",
               "- Extended Virtual Addressing entitlement NOT required or requested.",
               "- Single guest reservation: 5 GiB; Unreal allocator compatibility not assumed.",
+              "- Packaging uses --no-heap-check; engine heap/address-region runtime validation is still required.",
               "- GitHub-hosted macOS lacks a usable gameplay GPU; Mac boot results do not establish Metal rendering on iPad.",
               ""]
     output.write_text("\n".join(lines), encoding="utf-8")
@@ -167,7 +173,6 @@ def run(args):
     keys = Path(args.keys).resolve()
     output = Path(args.report).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-    work = folder / f"{GAME}_build"
     logdir = folder / "private-logs"
     logdir.mkdir(parents=True, exist_ok=True)
     ipa = folder / "MinecraftDungeonsII.ipa"
@@ -180,13 +185,9 @@ def run(args):
         common = [sys.executable, str(repo / "scripts/build_ipa_from_nsp.py"),
                   str(folder), "-k", str(keys), "--bootstrap-shaders",
                   "--no-heap-check", "--progress", "off"]
-        steps.append(stage("mac-shaders-and-host", common + ["--platform", "mac"],
-                           BUILD_LIMIT, env, logdir / "mac.log", repo, folder))
-        if steps[-1]["code"] == 0:
-            steps.append(boot_smoke(work, repo, env, logdir / "boot.log", folder))
-        else:
-            steps.append(dict(name="headless-mac-boot", code=125, seconds=0,
-                              error="Skipped until shader/host build succeeds"))
+        # The iOS path retains the Mac helpers needed for Oodle decoding,
+        # but compiles only iOS Metal libraries. A full desktop shader build
+        # previously consumed 85 minutes before this target even started.
         steps.append(stage("ios-ipa-build", common + ["--platform", "ios",
                            "--romfs", "bundle", "--gpu", "none"],
                            BUILD_LIMIT, env, logdir / "ios.log", repo, folder))

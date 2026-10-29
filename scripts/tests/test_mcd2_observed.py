@@ -98,12 +98,24 @@ class TestMcd2Monitor(unittest.TestCase):
             self.assertIn("[WATCHDOG]", captured.getvalue())
             self.assertIn("Low CPU", str(result["error"]))
 
-    def test_long_shader_stage_budget_and_short_ordinary_budget(self):
+    def test_monitor_respects_explicit_build_budget(self):
         with patch.object(monitor, "run_stage_once", return_value={"code": 0}) as call:
-            monitor.stage_observed("mac-shaders-and-host", [], 3300, {}, None, None, None)
-            self.assertEqual(call.call_args.args[2], 4500)
-            monitor.stage_observed("ios-ipa-build", [], 3300, {}, None, None, None)
-            self.assertEqual(call.call_args.args[2], 3300)
+            monitor.stage_observed("ios-ipa-build", [], 10800, {}, None, None, None)
+            self.assertEqual(call.call_args.args[2], 10800)
+
+    def test_ios_timeout_retries_only_once_with_same_work_and_short_budget(self):
+        args = ("ios-ipa-build", ["builder"], 10800, {}, None, None, None)
+        with patch.object(monitor, "run_stage_once", return_value={"code": 124}) as call:
+            self.assertEqual(monitor.stage_observed(*args)["code"], 124)
+            self.assertEqual(call.call_count, 2)
+            self.assertEqual(call.call_args.args[2], 600)
+            self.assertEqual(call.call_args.args[3:], args[3:])
+
+    def test_non_timeout_build_failure_is_not_retried(self):
+        with patch.object(monitor, "run_stage_once", return_value={"code": 2}) as call:
+            self.assertEqual(monitor.stage_observed(
+                "ios-ipa-build", [], 10800, {}, None, None, None)["code"], 2)
+            self.assertEqual(call.call_count, 1)
 
     def test_guard_remains_enforced_for_observed_driver(self):
         repo = Path(__file__).resolve().parents[2]

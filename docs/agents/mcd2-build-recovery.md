@@ -5,6 +5,47 @@ The one supported real-game pipeline is **`MCD2 observable recovery build`**
 inputs are large and the target game data and keys must remain private. The
 legacy unobserved `mcd2-integrated.yml` Actions workflow has been retired.
 
+The pipeline now builds the **iOS target directly**, including the Mac helper
+needed to decode Unreal/Oodle assets, without compiling a complete desktop
+shader library first. Run `40888376530` spent 75 minutes plus a ten-minute
+recovery in desktop shader compilation, then reached iOS packaging just
+before the old 55-minute iOS deadline. The iOS pass now has a finite
+three-hour budget and one same-runner recovery capped at ten minutes, inside
+a four-hour job. Idle-process detection and the 20-second heartbeat remain.
+This is a measured packaging-budget change, not a fix for engine allocation
+or proof that the game boots. Mac gameplay and iPad gameplay are untested.
+
+## Returning the IPA to the owner's Drive
+
+`workflow_dispatch` takes `output_file`: the ID of a **dedicated binary
+placeholder owned by the user**, named `MinecraftDungeonsII.ipa.pending`.
+Grant the existing runner service account Editor access to that file. Never
+use a game input, keys file, document, or unrelated file as the output.
+The workflow checks edit access before downloading the games. It does not
+change permissions or create service-account-owned files.
+
+`scripts/mcd2_drive_output.py` requests Drive write scope and updates this
+existing file through resumable `files.update`, preserving the user's
+ownership and storage quota. The dedicated file becomes
+`MinecraftDungeonsII.ipa` after upload. It is not a playable IPA while it
+still contains the placeholder. No additional OAuth user credential is
+needed for this existing-file update route, but a real runner upload must
+still verify the service account can write content and the owner has quota.
+
+Before delivery the script checks the IPA's single app payload, executable,
+bundled game resources, Metal libraries and every ZIP CRC. It then compares
+the stored Drive size and checksum with the local archive. Upload success
+alone is not a successful boot. The public build report precedes delivery;
+use the separate **Drive delivery step** for verified delivery status.
+
+The original input-download credential remains read-only in its downloader.
+The output script uses the same service account with write scope, restricted
+by the service account's actual file permissions and the dedicated filename
+gate. User authorization for this file does not grant access to all Drive.
+The output is separate from the runner cleanup; the owner can download it
+on the iPad, install it with their existing LiveContainer/signing setup and
+return the app's `Documents/log.txt` for actual device validation.
+
 ## Mandatory checks for every subsequent MCD2 workflow
 
 1. **Input gate:** download the exact base and v65536 update through the
@@ -31,7 +72,7 @@ legacy unobserved `mcd2-integrated.yml` Actions workflow has been retired.
    `build_ipa_from_nsp.py` fingerprint/reuse checks remain authoritative;
    a checkpoint marker does not let a later run skip validation.
 5. **Recovery:** on a timeout, terminate the full child process group,
-   preserve only the *current runner's* completed output, and retry the Mac
+   preserve only the *current runner's* completed output, and retry the iOS
    build at most once, reusing outputs if the builder validates them. Fail
    with an explicit last-stage reason if no progress can be made.
 6. **Privacy:** never publish NSPs, extracted/rewritten game code, shader
