@@ -64,7 +64,7 @@ class TestMcd2Integrated(unittest.TestCase):
                                       5, os.environ.copy(), base / "private.log",
                                       base, base)
             self.assertEqual(result["code"], 2)
-            self.assertIn("simulated error", result["error"])
+            self.assertIn("simulated error", str(result["error"]))
 
 
 if __name__ == "__main__":
