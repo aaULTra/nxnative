@@ -20,6 +20,7 @@ Every piece of code that runs for one game and not the others: the rewriter's pa
 | [Luigi's Mansion 3](#luigis-mansion-3) | 0 | 0 | 0 | 0 | 1 |  |
 | [Mario + Rabbids Kingdom Battle](#mario--rabbids-kingdom-battle) | 6 | 0 | 0 | 0 | 0 | yes |
 | [Mario + Rabbids® Sparks of Hope](#mario--rabbids-sparks-of-hope) | 7 | 0 | 0 | 0 | 0 | yes |
+| [Minecraft Dungeons II](#minecraft-dungeons-ii) | 1 | 0 | 0 | 0 | 1 | yes |
 | [Monster Hunter Rise](#monster-hunter-rise) | 0 | 0 | 0 | 0 | 1 |  |
 | [NieR:Automata The End of YoRHa Edition (010056B015FE8000)](#nierautomata-the-end-of-yorha-edition-010056b015fe8000) | 8 | 0 | 0 | 0 | 1 | yes |
 | [NieR:Automata The End of YoRHa Edition (0100B8E016F76000)](#nierautomata-the-end-of-yorha-edition-0100b8e016f76000) | 8 | 0 | 0 | 0 | 1 | yes |
@@ -319,6 +320,16 @@ Every piece of code that runs for one game and not the others: the rewriter's pa
   - cut `+0x16430c`: Snowdrop allocator: override the large range-size field to 2 GB (str x1,[x19,#0xa8]); AllocateAddressRegion wrapper never reads x2
   - cut `+0x164338`: Snowdrop large allocator: maximum 64 KB page count 65536 -> 32768, matching its 2 GB range (mov w5,#0x8000)
   - cut `+0x94354`: Unused 272-byte slot pool: 4,194,304 -> 65,536 slots, 1.06 GB -> 17 MB of address space (mov w1,#0x10000)
+
+### Minecraft Dungeons II
+
+[Minecraft Dungeons II](../../dm/games/0100A7C01B792000/README.md), `0100A7C01B792000`, [patches.py](../../dm/games/0100A7C01B792000/patches.py).
+
+**Generalize?** Use the existing Unreal host allocator mapping for this verified UE5.6 build; constructor/object/vtable discovery could eventually replace per-build addresses. Do not reuse these offsets for another module build.
+
+- **1.1.1.0 `main`** `9e9d887d…` ([patches.py:11](../../dm/games/0100A7C01B792000/patches.py#L11))
+  - cut `+0x143b0`: nninitStartup: omit verified FMallocBinned3 constructor (38 GiB pools); hle_uemalloc installs the host allocator in the fixed object
+  - host [hle_uemalloc.c:53](../../dm/host/hle_uemalloc.c#L53): Unreal's allocator on a host malloc zone
 
 ### Monster Hunter Rise
 
