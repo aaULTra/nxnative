@@ -5,7 +5,7 @@ name: MCD2 verified allocator replacement IPA
 
 on:
   pull_request:
-    types: [opened]
+    types: [opened, ready_for_review]
     branches: [main]
 
 permissions:
