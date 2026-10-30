@@ -54,8 +54,8 @@ class TestPreparedRecovery(unittest.TestCase):
             self.assertFalse((restored / 'prod.keys').exists())
             self.assertFalse((restored / 'RomFS.img').exists())
             env = stages.package_environment(restored)
-            self.assertEqual(env['MSL_IOS'], str(restored / 'shader/ios'))
-            self.assertEqual(env['ROMFS'], str(restored / 'extract/v65536/RomFS.img'))
+            self.assertEqual(env['MSL_IOS'], str((restored / 'shader/ios').resolve()))
+            self.assertEqual(env['ROMFS'], str((restored / 'extract/v65536/RomFS.img').resolve()))
 
     def test_bad_content_or_changed_inputs_publish_nothing(self):
         with tempfile.TemporaryDirectory() as td:
@@ -111,7 +111,7 @@ class TestPreparedRecovery(unittest.TestCase):
                 command = run.call_args.args[0]
                 self.assertEqual(Path(command[1]).name, 'build_ipa.sh')
                 self.assertEqual(len(command), 3)
-                self.assertEqual(run.call_args.kwargs['env']['PATCHED'], str(work / 'patched_v65536'))
+                self.assertEqual(run.call_args.kwargs['env']['PATCHED'], str((work / 'patched_v65536').resolve()))
 
     def test_portable_context_does_not_serialize_inherited_credentials(self):
         with tempfile.TemporaryDirectory() as td:
