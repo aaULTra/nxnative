@@ -3,6 +3,7 @@
 Runs without NSPs or console keys. A passing result is NOT a gameplay test.
 """
 from pathlib import Path
+import importlib.util
 import sys
 import unittest
 
@@ -105,6 +106,26 @@ class TestMcd2GameProfile(unittest.TestCase):
         self.assertIn("DM_GAME_SYS_RESOURCE 0x1400000ull", header)
         self.assertIn("DM_GAME_MODULES", header)
         self.assertIn('Minecraft Dungeons II', header)
+
+    def test_verified_constructor_cut_and_host_allocator_mapping_agree(self):
+        path = self.profile.dir / 'patches.py'
+        spec = importlib.util.spec_from_file_location('mcd2_allocator_patches', path)
+        if spec is None or spec.loader is None:
+            raise AssertionError('Missing MCD2 patch module loader')
+        patches = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(patches)
+        self.assertEqual(set(patches.CUTS), {EXPECTED_MODULES['main']})
+        cuts = patches.CUTS[EXPECTED_MODULES['main']]
+        self.assertEqual([(off, old, new) for off, old, new, _ in cuts],
+                         [(0x143b0, '6c700294', '1f2003d5')])
+        # The real rewriter asserts these original bytes against the NSO.
+        # This test links the two registries and the inspected BL destination;
+        # adding a cut without its host object/vtable would break startup.
+        word = int.from_bytes(bytes.fromhex(cuts[0][1]), 'little')
+        self.assertEqual(cuts[0][0] + (word & 0x3ffffff) * 4, 0xb0560)
+        host = (ROOT / 'dm/host/hle_uemalloc.c').read_text()
+        self.assertIn('"' + EXPECTED_MODULES['main'] + '", "Minecraft Dungeons II 1.1.1.0", '
+                      'UE5_6, 0x9979228, 0x85b68a8, 0x143b0', host)
 
 
 if __name__ == "__main__":

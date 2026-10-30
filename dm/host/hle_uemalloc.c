@@ -47,6 +47,10 @@ static const struct { const char *build, *what; int layout; uint64_t obj, vtable
     { "84e182f72ee1da4f477804bd05b54c15", "FINAL FANTASY RESONANCE 1.0.1", UE5_6, 0x77c6210, 0x67df800, 0x137f0 },
     // Asian release: object, 32-slot vtable and constructor cut verified on this main build (PRs #126 and #304).
     { "b7f965b9d7227db8e29f04e84ea7331b", "FINAL FANTASY RESONANCE 1.0.1 (Asian release)", UE5_6, 0x77c6210, 0x67df800, 0x137f0 },
+    // Minecraft Dungeons II v65536, UE5.6.1: fixed object returned by BaseAllocator (+0x14824) and used by TLS Malloc/Free (+0x14418/+0x14458).
+    // Constructor +0xb0560 installs the derived 32-slot vtable +0x85b68a8 and requests 38 GiB at +0xb0650. The base vtable +0x85b6ff0 has pure slots 6/8/10;
+    // derived slots 7/9 dispatch through 6/8, 11/12 through 6 then memset, 24/25 return 1, 26 names the allocator and 30/31 return 0. Exact-build inspection: run 40977368275.
+    { "9e9d887d59f7f7db176b35e3379258b9", "Minecraft Dungeons II 1.1.1.0", UE5_6, 0x9979228, 0x85b68a8, 0x143b0 },
 };
 enum { NSLOT = 32 };
 
