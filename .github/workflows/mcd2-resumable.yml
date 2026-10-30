@@ -1,11 +1,18 @@
 # Complete iOS preparation is uploaded and verified before app packaging.
 # Future compatible runs restore that boundary; only resource extraction repeats.
 # Private Drive files hold binaries; public artifacts remain metadata only.
-name: MCD2 verified allocator replacement IPA
+name: MCD2 resumable prepared build
 
 on:
-  push:
-    branches: ['codex/mcd2-allocator-run-pr25']
+  # Downloading several GB is deliberately owner-triggered only.
+  # Set the Google service account secret BEFORE starting a new run.
+  workflow_dispatch:
+    inputs:
+      output_file:
+        description: 'Dedicated editable Drive output file ID (not a game input)'
+        required: true
+        default: '1s4b_udOW7KN95fF67-wgKyjvTjBZLbHm'
+        type: string
 
 permissions:
   contents: read
@@ -16,7 +23,7 @@ concurrency:
 
 jobs:
   integrated:
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/codex/mcd2-allocator-run-pr25' }}
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' }}
     name: Restore or prepare shaders, checkpoint, package and deliver
     runs-on: xcode-27
     timeout-minutes: 330
@@ -28,7 +35,7 @@ jobs:
       MCD2_GDRIVE_SA_JSON: ${{ secrets.MCD2_GDRIVE_SA_JSON }}
       KEYS_TEXT: ${{ secrets.MCD2_PROD_KEYS }}
       DM_GAME: '0100A7C01B792000'
-      MCD2_OUTPUT_FILE: '1s4b_udOW7KN95fF67-wgKyjvTjBZLbHm'
+      MCD2_OUTPUT_FILE: ${{ inputs.output_file }}
       MCD2_STATUS_FILE: '1lHLo1IrocQAibhELIrnSrYyoTku5uq8W'
       MCD2_READY_INDEX: '10amTRrrjaO0rBe0wH3zsBjWAoKeG66KN'
       MCD2_READY_A: '1h33TNA_6YaUTOkVfY4vOAbpDNmd3afpH'
@@ -37,7 +44,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 2befb92a41528961230283778c88cf03d1b9171d
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:

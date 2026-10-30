@@ -4,7 +4,9 @@
 name: MCD2 verified allocator replacement IPA
 
 on:
-  create:
+  pull_request:
+    types: [opened]
+    branches: [main]
 
 permissions:
   contents: read
@@ -15,7 +17,7 @@ concurrency:
 
 jobs:
   integrated:
-    if: ${{ github.event_name == 'create' && github.event.ref_type == 'branch' && github.event.ref == 'codex/mcd2-allocator-run-pr25' }}
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'codex/mcd2-allocator-run-pr25' && github.event.pull_request.head.repo.full_name == github.repository && github.actor == github.repository_owner }}
     name: Restore or prepare shaders, checkpoint, package and deliver
     runs-on: xcode-27
     timeout-minutes: 330
