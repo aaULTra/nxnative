@@ -1,0 +1,53 @@
+name: MCD2 first iPad crash inspection
+on:
+  create:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    if: ${{ github.event.ref_type == 'branch' && github.event.ref == 'codex/mcd2-startup-inspection-1' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      BASE_URL: ${{ secrets.MCD2_BASE_URL }}
+      UPDATE_URL: ${{ secrets.MCD2_UPDATE_URL }}
+      KEYS_TEXT: ${{ secrets.MCD2_PROD_KEYS }}
+      MCD2_GDRIVE_SA_JSON: ${{ secrets.MCD2_GDRIVE_SA_JSON }}
+      MCD2_INSPECTION_FILE: '1KqygD48gp7kSNdjAwnzhSHanBz0f9E0t'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: '10.0.x'
+      - name: Set up bounded private inspection
+        run: |
+          set -euo pipefail
+          python -m pip install lz4 capstone fonttools google-api-python-client google-auth
+          umask 077
+          mkdir -p "$RUNNER_TEMP/mcd2/game"
+          printf '%s\n' "$KEYS_TEXT" > "$RUNNER_TEMP/mcd2/prod.keys"
+      - name: Download and hash-check the exact base and update
+        run: |
+          python -u scripts/mcd2_drive_api_download.py "$RUNNER_TEMP/mcd2/game" \
+            --base-link "$BASE_URL" --update-link "$UPDATE_URL"
+          python scripts/mcd2_preflight.py "$RUNNER_TEMP/mcd2/game" --keys "$RUNNER_TEMP/mcd2/prod.keys"
+      - name: Extract updated executable metadata only
+        run: |
+          set -euo pipefail
+          dotnet build dm/tools/nx_extract -c Release -v quiet --nologo
+          dotnet run --project dm/tools/nx_extract -c Release --no-build -- \
+            "$RUNNER_TEMP/mcd2/prod.keys" \
+            "$RUNNER_TEMP/mcd2/game/Minecraft Dungeons 2 [0100A7C01B792000][v0].nsp" \
+            "$RUNNER_TEMP/mcd2/game/Minecraft Dungeons 2 [0100A7C01B792800][v65536].nsp" \
+            "$RUNNER_TEMP/mcd2/inspect" --manifest
+      - name: Inspect exact crash and allocator startup; keep report private
+        run: python -u scripts/mcd2_startup_inspect.py "$RUNNER_TEMP/mcd2/inspect/ExeFS/main"
+      - name: Remove ephemeral NSPs, keys and extracted code
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/mcd2"
