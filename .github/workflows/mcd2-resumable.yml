@@ -1,3 +1,4 @@
+# Owner-requested retry at 2026-10-30 00:38 UTC; same pinned allocator fix.
 # Complete iOS preparation is uploaded and verified before app packaging.
 # Future compatible runs restore that boundary; only resource extraction repeats.
 # Private Drive files hold binaries; public artifacts remain metadata only.
